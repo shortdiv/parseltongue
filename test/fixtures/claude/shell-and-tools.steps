@@ -1,0 +1,18 @@
+cwd /work/app
++0s    prompt
++10s   call Read read ok /work/app/src/fetch.ts
++30s   call Bash read ok src/fetch.ts
++50s   call Bash search ok
++70s   call Bash read ok src/http.ts
++90s   call Grep search ok
++110s  call Bash edit ok notes/plan.md
++130s  call Edit edit ok /work/app/src/fetch.ts
++150s  call Bash run failed test
++170s  call Bash edit ok src/fetch.ts
++190s  call Bash run ok test
++210s  call Bash review ok
++230s  call Bash edit ?
++240s  decline
++250s  prompt
++260s  call Bash run ok commit push
++280s  prompt positive

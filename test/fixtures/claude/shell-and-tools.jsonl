@@ -1,0 +1,29 @@
+{"type": "user", "timestamp": "2026-11-02T14:00:10Z", "cwd": "/work/app", "message": {"content": "add a retry to the fetch helper"}}
+{"type": "assistant", "timestamp": "2026-11-02T14:00:20Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Read", "input": {"file_path": "/work/app/src/fetch.ts"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:00:30Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:00:40Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "b", "name": "Bash", "input": {"command": "sed -n '1,80p' src/fetch.ts"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:00:50Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "b", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:01:00Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "c", "name": "Bash", "input": {"command": "cd /work/app && rg -n \"retry\" src"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:01:10Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "c", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:01:20Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "d", "name": "Bash", "input": {"command": "nl -ba src/http.ts | head -40"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:01:30Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "d", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:01:40Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "e", "name": "Grep", "input": {"pattern": "fetch", "path": "src"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:01:50Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "e", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:02:00Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "f", "name": "Bash", "input": {"command": "cat > notes/plan.md <<'EOF'\nplan\nEOF"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:02:10Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "f", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:02:20Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "g", "name": "Edit", "input": {"file_path": "/work/app/src/fetch.ts", "old_string": "return res", "new_string": "return retry(res)"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:02:30Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "g", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:02:40Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "h", "name": "Bash", "input": {"command": "pnpm test 2>&1 | grep FAIL"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:02:50Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "h", "is_error": true, "content": "FAIL src/fetch.test.ts"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:03:00Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "i", "name": "Bash", "input": {"command": "sed -i '' 's/retry(res)/retry(res, 3)/' src/fetch.ts"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:03:10Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "i", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:03:20Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "j", "name": "Bash", "input": {"command": "pnpm test"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:03:30Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "j", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:03:40Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "k", "name": "Bash", "input": {"command": "git status --short && git diff --stat"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:03:50Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "k", "is_error": false, "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-11-02T14:04:00Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "l", "name": "Bash", "input": {"command": "rm -rf dist"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:04:10Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "l", "is_error": true, "content": "The user doesn't want to proceed with this tool use."}]}}
+{"type": "user", "timestamp": "2026-11-02T14:04:20Z", "cwd": "/work/app", "message": {"content": "ship it"}}
+{"type": "assistant", "timestamp": "2026-11-02T14:04:30Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_use", "id": "m", "name": "Bash", "input": {"command": "git commit -am \"retry fetch\" && git push"}}]}}
+{"type": "user", "timestamp": "2026-11-02T14:04:40Z", "cwd": "/work/app", "message": {"content": [{"type": "tool_result", "tool_use_id": "m", "is_error": false, "content": "ok"}]}}
+{"type": "user", "timestamp": "2026-11-02T14:04:50Z", "cwd": "/work/app", "message": {"content": "perfect, thanks"}}

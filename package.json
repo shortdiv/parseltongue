@@ -1,0 +1,32 @@
+{
+  "name": "@shortdiv/parseltongue",
+  "version": "0.1.0",
+  "description": "Browser-safe TypeScript parsers and chronological normalization for coding-agent session transcripts",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "publishConfig": { "access": "public" },
+  "keywords": ["claude-code", "codex", "pi", "jsonl", "transcript", "session", "parser"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "test": "pnpm run build && vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:package": "node scripts/check-package.mjs",
+    "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run check:package"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

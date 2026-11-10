@@ -1,0 +1,13 @@
+cwd /work/app
++0s    prompt
++10s   call exec_command read ok src/fetch.ts
++30s   call exec_command search ok
++50s   call exec_command read ok src/http.ts
++70s   call exec_command search ok
++90s   call apply_patch edit ok src/fetch.ts
++110s  call exec_command run failed test
++140s  call CommandExecution read ok src/fetch.ts
++150s  call CommandExecution run ok test
++160s  call exec_command review ok
++180s  prompt
++190s  call exec_command run ok commit push
