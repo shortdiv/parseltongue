@@ -68,7 +68,7 @@ Versions 1 (linear), 2 and 3 (tree) are handled. Events come from every branch i
 
 ### Databases: opencode, Cursor and Zed
 
-`opencodeReader()`, `cursorReader()` and `zedReader()` turn rows you read from each tool's SQLite database into events. Each documents the fields it needs; read only those.
+`opencodeReader()`, `cursorReader()` and `zedReader()` turn rows you read from each tool's SQLite database into events. Each documents the fields it needs; read only those. Rows change in place, so pass a row again whenever it changes: with its id (`callId`, `id`, `bubbleId`), each reader emits only what's new, like a tool part's result once it ends.
 
 ### Whole-session shape
 

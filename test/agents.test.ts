@@ -490,6 +490,17 @@ describe('opencode', () => {
     expect(only(events, 'usage')[0]!.tokens).toEqual({ input: 5, output: 5, cacheRead: 7, cacheWrite: 0 })
     expect(r.info).toEqual({ cwd: '/work/app', model: 'm' })
   })
+
+  it('emits each row once however often it is passed: a call, then its result when it ends', () => {
+    const r = opencodeReader()
+    const part = (status: string) => r.part({ type: 'tool', callId: 't1', tool: 'bash', status, start: 3_000, end: status === 'running' ? undefined : 4_000 })
+    const reply = (completed?: number) => r.message({ id: 'm2', role: 'assistant', created: 2_000, completed, tokens: { input: 5 } })
+    const events = [
+      ...r.message({ id: 'm1', role: 'user', created: 1_000 }), ...r.message({ id: 'm1', role: 'user', created: 1_000 }),
+      ...reply(), ...part('running'), ...part('running'), ...part('completed'), ...part('completed'), ...reply(9_000), ...reply(9_000),
+    ]
+    expect(events.map((e) => [e.at, label(e)])).toEqual([[1_000, 'prompt'], [3_000, 'call bash'], [4_000, 'result ok'], [9_000, 'reply'], [9_000, 'usage']])
+  })
 })
 
 describe('cursor', () => {
@@ -502,6 +513,12 @@ describe('cursor', () => {
     expect(events.map((e) => [e.by, e.k])).toEqual([['you', 'prompt'], ['agent', 'reply'], ['agent', 'usage']])
     expect(r.info.model).toBe('gpt')
   })
+
+  it('emits a bubble once, and its usage once Cursor has stored tokens', () => {
+    const r = cursorReader()
+    const bubble = (inputTokens?: number) => r.bubble({ bubbleId: 'b1', createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens })
+    expect([...bubble(), ...bubble(), ...bubble(4), ...bubble(4)].map((e) => e.k)).toEqual(['reply', 'usage'])
+  })
 })
 
 describe('zed', () => {
@@ -513,6 +530,11 @@ describe('zed', () => {
     ]
     expect(events.map((e) => [e.by, label(e)])).toEqual([['agent', 'system thread_updated'], ['agent', 'system thread_updated']])
     expect(r.info.cwd).toBe('/work/app')
+  })
+
+  it('skips a thread passed again with no change', () => {
+    const r = zedReader()
+    expect([...r.thread({ updatedAt: '2026-01-01T00:00:00Z' }), ...r.thread({ updatedAt: '2026-01-01T00:00:00Z' })]).toHaveLength(1)
   })
 })
 
