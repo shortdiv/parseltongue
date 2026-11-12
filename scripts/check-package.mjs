@@ -41,18 +41,18 @@ try {
 import assert from 'node:assert/strict'
 import * as parser from '@shortdiv/parseltongue'
 const raw = JSON.stringify({ type: 'session', version: 3, id: 'package-test', cwd: '/example', timestamp: '2026-01-01T00:00:00Z' })
-assert.equal(parser.normalizeSession(raw).id, 'pi:package-test')
+assert.equal(parser.parseSession(raw).id, 'package-test')
 assert.equal(parser.parseSession(raw).agent, 'pi')
 assert.equal(parser.reader('pi').entries.size, 0)
-for (const name of ['bill', 'AGENTS', 'SessionDataset', 'projectName', 'readSession']) assert.equal(name in parser, false)
+assert.deepEqual(Object.keys(parser).sort(), ['cursorReader', 'detect', 'isInjectedCodexText', 'opencodeReader', 'parseSession', 'reader', 'zedReader'])
 `)
   run(process.execPath, ['check.mjs'])
 
   // Compile a consumer with only ES libs: published declarations must not need @types/node.
   writeFileSync(join(temp, 'check.ts'), `
-import { normalizeSession, reader, type NormalizedSession } from '@shortdiv/parseltongue'
-const session: NormalizedSession = normalizeSession('')
-const parser = reader('pi')
+import { parseSession, reader, type Session, type PiReader } from '@shortdiv/parseltongue'
+const session: Session = parseSession('')
+const parser: PiReader = reader('pi')
 parser.read('')
 export { session, parser }
 `)

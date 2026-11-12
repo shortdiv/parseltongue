@@ -70,22 +70,14 @@ Versions 1 (linear), 2 and 3 (tree) are handled. Events come from every branch i
 
 `opencodeReader()`, `cursorReader()` and `zedReader()` turn rows you read from each tool's SQLite database into events. Each documents the fields it needs; read only those. Rows change in place, so pass a row again whenever it changes: with its id (`callId`, `id`, `bubbleId`), each reader emits only what's new, like a tool part's result once it ends.
 
-### Whole-session shape
+## Public API
 
-```ts
-import { normalizeSession } from '@shortdiv/parseltongue'
-
-const session = normalizeSession(await file.text(), file.name)
-session.events  // as parseSession
-session.turns   // { at, who, text }[]: your prompts and the agent's replies
-```
-
-The second argument is a source label, not a file to open. Claude and Codex session ids keep a filename-based form; pi uses the header id.
+Functions: `parseSession`, `reader`, `opencodeReader`, `cursorReader`, `zedReader`, `detect` and `isInjectedCodexText`. Every public type is exported from [`src/types.ts`](src/types.ts); everything else is internal.
 
 ## Compatibility and limitations
 
 - Every API detects the format the same way (`detect`): content signatures in the first 250 records, never the filename. A log that matches no format, or more than one, is `unknown` with a warning, never Claude by default; so are Gemini CLI and Qwen Code logs, which only the viewer reads.
-- Claude normalization omits sidechains, meta prompts, and tool-result-only turns. Codex omits user text considered injected context by the existing tag-prefix heuristic. pi normalization omits custom/system messages and thinking, but preserves chronological branch turns and text-free entry links.
+- Claude prompts exclude meta prompts, injected text and subagent lines from a parent's file. Codex excludes user text that opens with its own injected tags. pi excludes custom/system messages from prompts and keeps every branch's events.
 - Invalid JSON lines are skipped. pi reports counts and ancestry warnings; Claude/Codex do not provide per-line diagnostics. This is **not a JSONL validator**.
 - `reader(agent)` trusts the agent you name: syntactically valid JSON is not automatically a valid session record.
 - No compressed `.jsonl.zst` decoding. Decode outside the library.

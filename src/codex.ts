@@ -1,7 +1,8 @@
 import { callDraft, isAskTool } from './commands.js'
 import { blockText, type Adapter, type Draft, type Status } from './events.js'
 import { reworks, ReworkTracker, type Edit } from './rework.js'
-import { emptyTokens, parseISO, type TokenCounts } from './types.js'
+import type { TokenCounts } from './types.js'
+import { emptyTokens, parseISO } from './util.js'
 
 /**
  * Codex rollouts (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl): every line is

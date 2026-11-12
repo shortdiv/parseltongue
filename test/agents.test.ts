@@ -1,25 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import {
-  cursorReader,
-  isCommitCommand,
-  isPushCommand,
-  isTestCommand,
-  kindOf,
-  normalizeSession,
-  opencodeReader,
-  outcomes,
-  parseSession,
-  reader,
-  shellKind,
-  toolOf,
-  totalTokens,
-  zedReader,
-  type Harness,
-  type SessionEvent,
-} from '../src/index.js'
+import { cursorReader, opencodeReader, parseSession, reader, zedReader, type Harness, type SessionEvent } from '../src/index.js'
+import { isCommitCommand, isPushCommand, isTestCommand } from '../src/commands.js'
+import { outcomes } from '../src/events.js'
+import { kindOf, shellKind, toolOf } from '../src/kinds.js'
+import type { TokenCounts } from '../src/types.js'
 
 /** Every agent's parser, then what they share. Synthetic data only. */
+
+const totalTokens = (t: TokenCounts) => t.input + t.output + t.cacheRead + t.cacheWrite
 
 let t = Date.parse('2026-10-26T10:00:00Z')
 const at = () => new Date((t += 10_000)).toISOString()
@@ -557,9 +546,9 @@ describe('synthetic fixtures', () => {
   for (const [harness, name] of cases) {
     it(`${harness}/${name}`, async () => {
       const url = new URL(`./fixtures/${harness}/${name}.jsonl`, import.meta.url)
-      const session = normalizeSession(readFileSync(url, 'utf8'), url.pathname)
+      const session = parseSession(readFileSync(url, 'utf8'), { text: true })
       expect(session.agent).toBe(harness)
-      expect(session.turns.length).toBeGreaterThan(0)
+      expect(session.events.some((e) => e.k === 'prompt' && session.text.has(e.id))).toBe(true)
       const t0 = session.events[0]!.at
       const output = [`cwd ${session.cwd}`, ...session.events.map((e) => line(e, t0))].join('\n') + '\n'
       await expect(output).toMatchFileSnapshot(url.pathname.replace(/\.jsonl$/, '.events'))
