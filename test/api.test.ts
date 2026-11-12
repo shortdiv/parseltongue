@@ -64,6 +64,16 @@ describe('parseSession', () => {
     expect(textOf('reply')).toEqual(['Looking at the test first.'])
   })
 
+  it('calls a log it can\'t place unknown, never Claude', () => {
+    const pi = '{"type":"session","id":"p1","version":3}'
+    const gemini = '{"sessionId":"g1","projectHash":"h","messages":[]}'
+    for (const [raw, warning] of [
+      ['{"hello":"world"}', 'Unrecognised format'],
+      [gemini, 'Gemini CLI logs aren\'t parsed into events; the viewer API reads them'],
+      [`${pi}\n${RAW.split('\n')[0]}`, 'Ambiguous format: looks like pi and Claude Code'],
+    ]) expect(parseSession(raw!)).toEqual({ id: '', agent: 'unknown', events: [], warnings: [warning] })
+  })
+
   it('skips lines that are damaged or not JSON objects', () => {
     expect(parseSession('null\n[]\n{broken\n' + RAW).events).toEqual(parseSession(RAW).events)
   })

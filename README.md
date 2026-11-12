@@ -21,7 +21,7 @@ Zero-runtime-dependency, browser-safe TypeScript parsers for **Claude Code, Code
 ```ts
 import { parseSession, type SessionEvent } from '@shortdiv/parseltongue'
 
-const session = parseSession(rawJsonl)   // Claude Code, Codex or pi, detected from the first line
+const session = parseSession(rawJsonl)   // Claude Code, Codex or pi, detected from its content
 session.events                           // SessionEvent[]: time-ordered and text-free
 
 const { text } = parseSession(rawJsonl, { text: true })
@@ -91,7 +91,7 @@ if (path.complete) console.log(parser.getTimeline())
 
 ## Compatibility and limitations
 
-- `normalizeSession` retains the original dispatch: a first parsed `type: 'session'` record selects pi; `session_meta` or a `/.codex/` source path selects Codex; **everything else defaults to Claude**. It is not a reliable unknown-format detector. Do not display a confident detected badge solely from this API yet.
+- Every API detects the format the same way (`detect`): content signatures in the first 250 records, never the filename. A log that matches no format, or more than one, is `unknown` with a warning, never Claude by default; so are Gemini CLI and Qwen Code logs, which only the viewer reads.
 - Claude normalization omits sidechains, meta prompts, and tool-result-only turns. Codex omits user text considered injected context by the existing tag-prefix heuristic. pi normalization omits custom/system messages and thinking, but preserves chronological branch turns and text-free entry links.
 - Invalid JSON lines are skipped by the existing ingestion/normalization APIs. pi reports counts and ancestry warnings; Claude/Codex do not provide per-line diagnostics. This is **not a JSONL validator**.
 - Direct low-level ingestion expects agent-shaped JSON objects; syntactically valid JSON is not automatically a valid session record.

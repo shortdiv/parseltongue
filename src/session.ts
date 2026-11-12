@@ -2,10 +2,12 @@ import { SessionAccumulator } from './accumulator.js'
 import { claudeTyped, ingestClaudeLine } from './claude.js'
 import { ingestCodexLine, outputText, promptText, readOutput } from './codex.js'
 import { PiSessionParser } from './pi.js'
+import { detect } from './detect.js'
 import type { CallStep } from './timeline.js'
 import { toolOf, type Kind, type Tool } from './kinds.js'
 import { parseISO, type TokenCounts } from './types.js'
 
+/** The harnesses parseSession reads. A log from any other, or one it can't tell, is unknown. */
 export type Harness = 'claude' | 'codex' | 'pi'
 export type By = 'you' | 'agent' | 'system'
 export type Status = 'ok' | 'failed' | 'declined' | 'interrupted' | 'unknown'
@@ -56,7 +58,7 @@ export type Tag = 'context' | 'log'
 
 export interface Session {
   id: string
-  agent: Harness
+  agent: Harness | 'unknown'
   cwd?: string
   /** A subagent's or fork's parent session. */
   parent?: { session: string; via: 'subagent' | 'fork' }
@@ -212,16 +214,16 @@ function pi(): Harnessed & { parser: PiSessionParser } {
   }
 }
 
-/** Which harness wrote a log, from its first line. */
-function detect(raw: string): Harness {
-  const first = raw.slice(0, raw.indexOf('\n') + 1 || undefined)
-  let type: unknown
-  try {
-    type = JSON.parse(first).type
-  } catch {}
-  if (type === 'session') return 'pi'
-  if (type === 'session_meta' || type === 'response_item' || type === 'turn_context' || type === 'event_msg') return 'codex'
-  return 'claude'
+const NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', gemini: 'Gemini CLI', qwen: 'Qwen Code' }
+
+/** Which harness wrote a log, or why it's unknown. */
+function harnessOf(raw: string): { agent: Harness | 'unknown'; warning?: string } {
+  const found = detect(raw)
+  if (found.length > 1) return { agent: 'unknown', warning: `Ambiguous format: looks like ${found.map((f) => NAMES[f]).join(' and ')}` }
+  const [format] = found
+  if (format === undefined) return { agent: 'unknown', warning: 'Unrecognised format' }
+  if (format === 'gemini' || format === 'qwen') return { agent: 'unknown', warning: `${NAMES[format]} logs aren't parsed into events; the viewer API reads them` }
+  return { agent: format }
 }
 
 const statusOf = (acc: SessionAccumulator, c: CallStep): Status =>
@@ -230,12 +232,14 @@ const statusOf = (acc: SessionAccumulator, c: CallStep): Status =>
 type CallEvent = SessionEvent & { k: 'call' }
 
 /** Reads a whole log. Shared by parseSession and normalizeSession. */
-export function readSession(raw: string, agent: Harness = detect(raw)) {
+export function readSession(raw: string) {
+  const { agent, warning } = harnessOf(raw)
+  const session: Session = { id: '', agent, events: [], warnings: warning ? [warning] : [] }
+  const text: SessionText = new Map()
+  if (agent === 'unknown') return { session, text, acc: new SessionAccumulator(), pi: undefined }
   const piParser = agent === 'pi' ? pi() : undefined
   const h = piParser ?? (agent === 'codex' ? codex() : claude())
   const acc = h.acc
-  const session: Session = { id: '', agent, events: [], warnings: [] }
-  const text: SessionText = new Map()
   /** Call events by tool call id, with the step that settles their status. */
   const calls = new Map<string, { event: CallEvent; step?: CallStep }>()
   /** Calls whose result has arrived: Codex can log it twice (an end event and the output). */

@@ -2,7 +2,7 @@ import type { PiEntry } from './pi.js'
 import { readSession, type Harness } from './session.js'
 import type { Step } from './timeline.js'
 
-export const agentName = (agent: Harness) => ({ claude: 'Claude Code', codex: 'Codex', pi: 'Pi' })[agent]
+export const agentName = (agent: Harness | 'unknown') => ({ claude: 'Claude Code', codex: 'Codex', pi: 'Pi', unknown: 'Unknown' })[agent]
 
 export interface Turn {
   at: number
@@ -17,7 +17,7 @@ export interface Turn {
 export interface NormalizedSession {
   id: string
   file: string
-  agent: Harness
+  agent: Harness | 'unknown'
   project: string
   /** The folder the session ran in, for reading its git history. */
   cwd?: string
@@ -30,9 +30,9 @@ export interface NormalizedSession {
 
 const basename = (path: string) => path.replace(/\/$/, '').split('/').pop() || path
 
-/** Detects the harness from the log's first line; a path under .codex/ also means Codex. */
+/** Detects the harness from the log's content, as parseSession does; `file` only names the session. */
 export function normalizeSession(raw: string, file = ''): NormalizedSession {
-  const { session, text, acc, pi } = readSession(raw, file.includes('/.codex/') ? 'codex' : undefined)
+  const { session, text, acc, pi } = readSession(raw)
   const turns: Turn[] = []
   for (const e of session.events) {
     const words = text.get(e.id)
