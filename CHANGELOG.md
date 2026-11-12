@@ -2,10 +2,9 @@
 
 ## 0.1.0 — Unreleased
 
-- Claude Code, Codex, and pi parsing and chronological normalization.
-- Preserve the existing incremental ingestion APIs, session IDs, timing/token accounting, and pi ancestry diagnostics.
-- Isolate the runtime from filesystem, UI, billing, classifier, and model dependencies.
-- Give every tool call a `kind` (read, search, edit, review, run, web, delegate, plan, mcp, other). Shell calls get theirs from the command (`shellKind`: `sed -n`, `cat`, `rg`, `cat >`, `sed -i`, `git diff`…) along with the files they read or wrote; other calls from the tool's name (`kindOf`).
-- Provide ESM JavaScript and TypeScript declarations, standalone tests, synthetic fixtures, and MIT licensing.
-
-This first extraction is analytics-oriented, not a full-fidelity transcript/event model. Gemini CLI and Qwen Code are planned, not supported yet.
+- Parse Claude Code, Codex and pi sessions. No runtime dependencies; browser-safe ESM with TypeScript declarations.
+- `parseSession(raw)`: one time-ordered list of text-free events, each with a timestamp and who produced it. Text is opt-in with `{ text: true }`.
+- Calls carry a normalized `tool`, the raw `name`, a `kind` (read, discover, edit, review, run, web, delegate, mcp, other) and a `status`. A shell call's kind and files come from its command.
+- System events are tagged `context` or `log` so consumers can drop them.
+- Only labels, no accounting: time, tone and day buckets are left to the consumer.
+- Row parsers for opencode, Cursor and Zed.
