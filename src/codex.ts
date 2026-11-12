@@ -84,21 +84,37 @@ const isWebItem = (it: { type?: string; kind?: string } | undefined) =>
 
 type Outcome = 'ok' | 'failed' | 'declined'
 
+/** Tags Codex wraps the context it injects in. Newer ones are snake_case, like most of these. */
+const INJECTED_TAGS = new Set(['environment_context', 'user_instructions', 'skill', 'recommended_plugins', 'turn_aborted', 'system_instruction', 'codex_internal_context', 'user_action'])
+
 /**
- * Codex also logs injected context as user messages: tags like
- * <environment_context>, and the contents of AGENTS.md.
+ * Codex logs the context it injects as user messages: AGENTS.md, or a message that opens
+ * with one of its tags, like <environment_context>. A prompt you typed that merely starts
+ * with `<` (pasted HTML, `<div> isn't centering`) is yours.
  */
 export const isInjectedCodexText = (text: string) => {
-  const t = text.trimStart()
-  return t.startsWith('<') || t.startsWith('# AGENTS.md instructions')
+  const t = text.trim()
+  if (t.startsWith('# AGENTS.md instructions')) return true
+  const tag = /^<([a-z][a-z0-9_]*)[\s>]/.exec(t)?.[1]
+  return tag !== undefined && (INJECTED_TAGS.has(tag) || tag.includes('_'))
 }
 
-/** Your prompt's text, if this line is one. */
+/** A shell command you ran yourself (`!` in Codex), logged as a user message with its output. */
+export const isUserShell = (l: Line) =>
+  l.type === 'response_item' && l.payload?.type === 'message' && l.payload.role === 'user' &&
+  /^\s*<user_shell_command>/.test(l.payload.content?.find((c) => c.type === 'input_text')?.text ?? '')
+
+/** An attached image is logged as text parts around it: <image name=[Image #1]> and </image>. */
+const IMAGE_WRAPPER = /^\s*<\/?image\b[^>]*>\s*$/
+
+/** Your prompt's text, if this line is one: '' for an image with no text. */
 export function promptText(l: Line): string | undefined {
   const p = l.payload
-  if (l.type !== 'response_item' || p?.type !== 'message' || p.role !== 'user') return undefined
-  const text = p.content?.find((c) => c.type === 'input_text')?.text
-  return text && !isInjectedCodexText(text) ? text : undefined
+  if (l.type !== 'response_item' || p?.type !== 'message' || p.role !== 'user' || isUserShell(l)) return undefined
+  const parts = p.content ?? []
+  const text = parts.filter((c) => c.type === 'input_text' && typeof c.text === 'string' && !IMAGE_WRAPPER.test(c.text)).map((c) => c.text).join('\n')
+  if (text) return isInjectedCodexText(text) ? undefined : text
+  return parts.some((c) => c.type === 'input_image') ? '' : undefined
 }
 
 export const outputText = (o: unknown): string =>
@@ -248,7 +264,8 @@ export function codex(): Adapter {
         if (reply) events.push({ at, by: 'agent', k: 'reply', text: reply })
       }
       const prompt = promptText(l)
-      if (prompt !== undefined) events.push({ at, by: 'you', k: 'prompt', origin: 'typed', text: prompt })
+      if (prompt !== undefined) events.push({ at, by: 'you', k: 'prompt', origin: 'typed', text: prompt || undefined })
+      if (isUserShell(l)) events.push({ at, by: 'you', k: 'shell' })
 
       const id = p.call_id
       if (l.type === 'response_item' && (p.type === 'function_call' || p.type === 'custom_tool_call') && id && p.name) {

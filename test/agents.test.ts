@@ -199,6 +199,23 @@ describe('codex', () => {
     expect(only(events, 'result').map((r) => r.status)).toEqual(['ok', 'ok', 'ok'])
   })
 
+  it('tells your prompts from injected context, even when they start with <', () => {
+    const user = (...content: object[]) => cx('response_item', { type: 'message', role: 'user', content })
+    const text = (t: string) => ({ type: 'input_text', text: t })
+    const { events, text: words } = read('codex', [
+      user(text('<environment_context>\n  <cwd>/work/app</cwd>\n</environment_context>')),
+      user(text("<div> isn't centering")),
+      user(text('<image name=[Image #1]>'), { type: 'input_image', image_url: 'data:' }, text('</image>'), text('what is wrong here?')),
+      user(text('<user_shell_command>\n<command>\ngit status\n</command>\n<result>\nclean\n</result>\n</user_shell_command>')),
+    ])
+    expect(events.map((e) => [label(e), words.get(e.id)])).toEqual([
+      ['system response_item:message:user', undefined],
+      ['prompt', "<div> isn't centering"],
+      ['prompt', 'what is wrong here?'],
+      ['shell', undefined],
+    ])
+  })
+
   it('labels a question to you and your answer', () => {
     const { events } = read('codex', [
       cx('response_item', { type: 'function_call', call_id: 'q', name: 'resolve_open_questions', arguments: '{}' }),
