@@ -15,8 +15,12 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const run = (cmd, args, cwd = temp) => execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
 
 try {
+  // tsc never deletes output, so files from removed sources would otherwise be packed.
+  rmSync(join(root, 'dist'), { recursive: true, force: true })
   run(process.execPath, [compiler, '-p', 'tsconfig.build.json'], root)
-  const [packed] = JSON.parse(run(npm, ['pack', '--ignore-scripts', '--json', '--pack-destination', temp], root))
+  // npm 12 keys pack output by package name; older npm returns an array.
+  const out = JSON.parse(run(npm, ['pack', '--ignore-scripts', '--json', '--pack-destination', temp], root))
+  const packed = Array.isArray(out) ? out[0] : Object.values(out)[0]
   const files = packed.files.map(f => f.path)
   assert(files.includes('dist/index.js'))
   assert(files.includes('dist/index.d.ts'))
