@@ -240,6 +240,20 @@ describe('codex', () => {
     ])
   })
 
+  it('ends a code-mode script cut off before its output at the abort or next prompt', () => {
+    const item = (id: string) => cx('event_msg', { type: 'item_completed', item: { id, type: 'CommandExecution', status: 'completed', command: 'ls' } })
+    const cell = (id: string) => cx('response_item', { type: 'custom_tool_call', call_id: id, name: 'exec', input: 'await run("ls")' })
+    const prompt = cx('response_item', { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'go on' }] })
+    const { events, calls } = read('codex', [
+      cell('s1'), item('a'), cx('event_msg', { type: 'turn_aborted', reason: 'interrupted' }), item('b'),
+      cell('s2'), item('c'), prompt, item('d'),
+    ])
+    expect(events.filter((e) => e.k === 'call').map((e) => [e.call, e.within])).toEqual([
+      ['s1', undefined], ['a', 's1'], ['b', undefined], ['s2', undefined], ['c', 's2'], ['d', undefined],
+    ])
+    expect([calls.s1, calls.s2]).toEqual(['unknown', 'unknown'])
+  })
+
   it('counts each response\'s tokens once, from its usage record when the log has them', () => {
     const usage = (input: number, output: number) => ({ input_tokens: input, cached_input_tokens: 10, output_tokens: output })
     const raw = [

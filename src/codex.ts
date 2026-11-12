@@ -264,6 +264,8 @@ export function codex(): Adapter {
         if (reply) events.push({ at, by: 'agent', k: 'reply', text: reply })
       }
       const prompt = promptText(l)
+      // A script cut off before its output never clears itself; a new prompt or an abort ends it.
+      if (prompt !== undefined || (l.type === 'event_msg' && p.type === 'turn_aborted')) cell = undefined
       if (prompt !== undefined) events.push({ at, by: 'you', k: 'prompt', origin: 'typed', text: prompt || undefined })
       if (isUserShell(l)) events.push({ at, by: 'you', k: 'shell' })
 
