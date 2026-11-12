@@ -92,4 +92,10 @@ describe('parseSession', () => {
       })
     }
   }
+  it('reads a file that starts with a byte order mark', () => {
+    const pi = parseSession('\uFEFF' + JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' }))
+    expect([pi.agent, pi.id, pi.cwd, pi.warnings]).toEqual(['pi', 'p1', '/work', []])
+    const claude = parseSession('\uFEFF' + JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } }))
+    expect([claude.agent, claude.events.map((e) => e.k)]).toEqual(['claude', ['prompt']])
+  })
 })

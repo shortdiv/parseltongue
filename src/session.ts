@@ -41,6 +41,7 @@ function harnessOf(raw: string): { agent: Harness | 'unknown'; warning?: string 
 
 /** Reads a whole log. Shared by parseSession and normalizeSession. */
 export function readSession(raw: string) {
+  if (raw.startsWith('\uFEFF')) raw = raw.slice(1)
   const { agent, warning } = harnessOf(raw)
   const warnings = warning ? [warning] : []
   if (agent === 'unknown') return { session: { id: '', agent, events: [], calls: {}, warnings } as Session, text: new Map() as SessionText }
