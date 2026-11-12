@@ -124,11 +124,18 @@ export function claude(): Adapter {
   const tracker = new ReworkTracker()
   /** Claude Code logs an interrupt line right after a declined tool call; it's part of the decline. */
   let afterDecline = false
+  /**
+   * A line of this session's own work. Older logs keep a subagent's lines inside the
+   * parent's file, as sidechain lines: those are the subagent's, not this session's.
+   */
+  const mine = (l: Line) => !l.isSidechain || (l.agentId !== undefined && l.agentId === info.id)
 
   return {
     info,
     read(l: Line) {
-      info.id ||= (l.isSidechain && l.agentId) || l.sessionId || undefined
+      // A subagent's own file is all sidechain lines (after a fork-context-ref, for a fork),
+      // named for its agentId.
+      info.id ||= ((l.isSidechain || l.type === 'fork-context-ref') && l.agentId) || l.sessionId || undefined
       if (l.type === 'fork-context-ref' && l.parentSessionId) info.parent = { session: l.parentSessionId, via: 'fork' }
       // A subagent's own file: its lines carry the parent's sessionId. (Older logs keep
       // subagent lines inside the parent's file, under the parent's own id.)
@@ -139,7 +146,8 @@ export function claude(): Adapter {
       if (l.version) info.version = l.version
 
       const events: Draft[] = []
-      if (l.type === 'assistant' && !l.isSidechain) {
+      const own = mine(l)
+      if (l.type === 'assistant' && own) {
         if (blocks(l).some((b) => b.type === 'thinking')) events.push({ at, by: 'agent', k: 'think', text: blockText(l.message?.content, 'thinking', 'thinking') })
         const reply = blockText(l.message?.content)
         if (reply) events.push({ at, by: 'agent', k: 'reply', text: reply })
@@ -153,7 +161,7 @@ export function claude(): Adapter {
       else if (typed) events.push({ at, by: 'you', k: 'prompt', origin: l.type === 'attachment' ? 'queued' : 'typed', text: typed.text })
       if (typed || l.type === 'assistant') afterDecline = false
 
-      if (!l.isSidechain) {
+      if (own) {
         for (const b of blocks(l)) {
           if (b.type === 'tool_use') {
             if (!b.id || calls.has(b.id)) continue
@@ -203,14 +211,14 @@ export function claude(): Adapter {
       return { at, events }
     },
     label: (l: Line) => ({
-      what: l.isSidechain ? 'subagent'
+      what: !mine(l) ? 'subagent'
         : l.type === 'user' ? `user:${l.isCompactSummary ? 'compact-summary' : l.origin?.kind ?? (l.isMeta ? 'meta' : 'other')}`
         : [l.type, l.subtype ?? l.attachment?.type ?? l.operation].filter(Boolean).join(':'),
-      tag: l.isSidechain ? undefined
+      tag: !mine(l) ? undefined
         : l.type === 'user' || (l.type === 'attachment' && l.attachment?.type !== 'hook_success') ? 'context'
         : LOGS.has(l.type!) || l.type === 'attachment' || (l.type === 'system' && SYSTEM_LOGS.has(l.subtype!)) ? 'log'
         : undefined,
-      by: l.isSidechain ? 'agent' : 'system',
+      by: !mine(l) ? 'agent' : 'system',
     }),
   }
 }

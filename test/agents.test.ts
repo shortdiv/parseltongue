@@ -64,6 +64,23 @@ describe('claude code', () => {
     expect(only(events, 'call')[0]).toMatchObject({ test: true })
   })
 
+  it('reads a subagent\'s own file as its work, and a subagent inline in its parent\'s file as the subagent\'s', () => {
+    const side = (agentId: string, l: object) => ({ ...l, isSidechain: true, sessionId: 'parent', agentId })
+    const subagent = [
+      side('a1', { type: 'user', timestamp: at(), message: { content: 'find the retry logic' } }),
+      side('a1', call('c', 'Grep', { pattern: 'retry' })),
+      side('a1', result('c')),
+      side('a1', { type: 'assistant', timestamp: at(), message: { content: [{ type: 'text', text: 'It is in fetch.ts.' }] } }),
+    ]
+    const own = read('claude', subagent)
+    expect(own.info).toMatchObject({ id: 'a1', parent: { session: 'parent', via: 'subagent' } })
+    // The task is the parent agent's instruction, not something you typed.
+    expect(own.events.map(label)).toEqual(['system user:other', 'call Grep', 'result ok', 'reply'])
+
+    const parent = read('claude', [{ ...prompt('fix retry'), sessionId: 'parent' }, ...subagent])
+    expect(parent.events.map(label)).toEqual(['prompt', 'system subagent', 'system subagent', 'system subagent', 'system subagent'])
+  })
+
   it('keeps a question you declined', () => {
     const { events } = read('claude', [
       call('q', 'AskUserQuestion', { questions: [] }),
