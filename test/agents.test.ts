@@ -64,6 +64,14 @@ describe('claude code', () => {
     expect(only(events, 'call')[0]).toMatchObject({ test: true })
   })
 
+  it('keeps a question you declined', () => {
+    const { events } = read('claude', [
+      call('q', 'AskUserQuestion', { questions: [] }),
+      result('q', true, "The user doesn't want to proceed with this tool use."),
+    ])
+    expect(events.slice(-2)).toMatchObject([{ k: 'ask', call: 'q' }, { k: 'answer', call: 'q', by: 'you', declined: true }])
+  })
+
   it('records what each call did and the files it touched, from its command only for a shell tool', () => {
     const { events } = read('claude', [
       call('a', 'Read', { file_path: 'x.ts' }),

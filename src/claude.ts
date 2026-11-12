@@ -175,7 +175,9 @@ export function claude(): Adapter {
             const declined = b.is_error === true && result?.includes(DECLINED) === true
             if (declined) afterDecline = true
             if (asks.delete(id)) {
-              if (!declined) events.push({ at, by: 'you', k: 'answer', call: id, text: typeof b.content === 'string' ? b.content : blockText(b.content) })
+              events.push(declined
+                ? { at, by: 'you', k: 'answer', call: id, declined: true }
+                : { at, by: 'you', k: 'answer', call: id, text: typeof b.content === 'string' ? b.content : blockText(b.content) })
               continue
             }
             const edits = open.get(id)

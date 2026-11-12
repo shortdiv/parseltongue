@@ -34,7 +34,7 @@ Every event has an `id`, a timestamp `at`, who produced it (`by`: `you`, `agent`
 | `k` | by | notes |
 |---|---|---|
 | `prompt` | you | `origin`: `typed` or `queued` |
-| `shell`, `interrupt`, `answer` | you | `answer` refers to the agent's `ask` |
+| `shell`, `interrupt`, `answer` | you | `answer` refers to the agent's `ask`, and is `declined` when you turned the question down |
 | `reply`, `think`, `ask` | agent | |
 | `call` | agent | `tool`, raw `name`, `kind`, and `paths`, `test`, `commit`, `push` when known |
 | `result` | agent | the call's `status`: `ok`, `failed`, `declined`, `interrupted`, or `unknown` when the result doesn't say; `rework` on a successful edit that mostly replaces lines the agent wrote earlier |

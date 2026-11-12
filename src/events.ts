@@ -14,7 +14,9 @@ export type Tag = 'context' | 'log'
  */
 export type SessionEvent = { id: string; at: number; by: By } & (
   | { k: 'prompt'; origin: 'typed' | 'queued' }
-  | { k: 'ask' | 'answer'; call: string }
+  | { k: 'ask'; call: string }
+  /** declined: you turned the question down instead of answering it. */
+  | { k: 'answer'; call: string; declined?: true }
   | { k: 'shell' | 'interrupt' | 'reply' | 'think' | 'compact' }
   | {
       k: 'call'
