@@ -39,7 +39,7 @@ function harnessOf(raw: string): { agent: Harness | 'unknown'; warning?: string 
   return { agent: format }
 }
 
-/** Reads a whole log. Shared by parseSession and normalizeSession. */
+/** Reads a whole log. Shared by parseSession and normalizeSession; internal, not exported from the package. */
 export function readSession(raw: string) {
   const { agent, warning } = harnessOf(raw)
   const warnings = warning ? [warning] : []

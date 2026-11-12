@@ -1,5 +1,5 @@
 export * from './types.js'
-export { parseSession, reader, readSession, type Session, type Harness } from './session.js'
+export { parseSession, reader, type Session, type Harness } from './session.js'
 export { outcomes, type SessionEvent, type SessionText, type SessionInfo, type Reader, type By, type Status, type Tag } from './events.js'
 export { piReader, type PiReader, type PiEntry, type PiMetadata } from './pi.js'
 export { normalizeSession, agentName, type NormalizedSession, type Turn } from './normalize.js'

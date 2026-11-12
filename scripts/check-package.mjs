@@ -44,7 +44,7 @@ const raw = JSON.stringify({ type: 'session', version: 3, id: 'package-test', cw
 assert.equal(parser.normalizeSession(raw).id, 'pi:package-test')
 assert.equal(parser.parseSession(raw).agent, 'pi')
 assert.equal(parser.reader('pi').entries.size, 0)
-for (const name of ['bill', 'AGENTS', 'SessionDataset', 'projectName']) assert.equal(name in parser, false)
+for (const name of ['bill', 'AGENTS', 'SessionDataset', 'projectName', 'readSession']) assert.equal(name in parser, false)
 `)
   run(process.execPath, ['check.mjs'])
 
