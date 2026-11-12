@@ -1,4 +1,4 @@
-import { kindOf, shellKind, toolOf } from './kinds.js'
+import { commandParts, kindOf, shellKind, toolOf } from './kinds.js'
 import type { Draft } from './events.js'
 
 const TEST =
@@ -10,9 +10,11 @@ const PUSH = /\bgit\s+(-C\s+\S+\s+)?push\b/
 const ASK = new Set(['AskUserQuestion', 'request_user_input', 'resolve_open_questions'])
 export const isAskTool = (tool: string) => ASK.has(tool)
 
-export const isTestCommand = (cmd: string) => TEST.test(cmd)
-export const isCommitCommand = (cmd: string) => COMMIT.test(cmd)
-export const isPushCommand = (cmd: string) => PUSH.test(cmd)
+/** Whether some part of a command, read without its quoted text, matches. */
+const runs = (re: RegExp) => (cmd: string) => commandParts(cmd).some((part) => re.test(part))
+export const isTestCommand = runs(TEST)
+export const isCommitCommand = runs(COMMIT)
+export const isPushCommand = runs(PUSH)
 
 /**
  * A call event: what it did (from its command, for a shell tool), the files it

@@ -233,6 +233,10 @@ describe('detectors', () => {
     expect(isPushCommand('git push -u origin main')).toBe(true)
     expect(isPushCommand('git -C repo push')).toBe(true)
     expect(isPushCommand('git pull')).toBe(false)
+    // Quoted text is data: a commit message or an echo that names a command doesn't run it.
+    expect(isTestCommand('git commit -m "Fix retry\n\nrun pytest after"')).toBe(false)
+    expect(isPushCommand('git commit -m "then git push" && echo done')).toBe(false)
+    expect(isTestCommand('echo "pnpm test"')).toBe(false)
   })
 })
 
@@ -508,6 +512,11 @@ describe('shellKind', () => {
     // runs
     ['pnpm test 2>&1 | grep FAIL', 'run', []],
     ['git commit -am "fix" && git push', 'run', []],
+    // a commit message's lines are part of the message, however they read
+    ["git commit -m 'Fix retry\n\nrm -rf dist > out.log'", 'run', []],
+    ['git commit -m "Say \\"retry\\" once\n\nCo-Authored-By: A <a@example.com>"', 'run', []],
+    // a quote inside a comment isn't one
+    ["# don't build yet\ncat src/a.ts", 'read', ['src/a.ts']],
     ["python3 - <<'EOF'\nprint(open('a.txt').read())\nEOF", 'run', []],
     ['pnpm test 2>/dev/null', 'run', []],
     // web

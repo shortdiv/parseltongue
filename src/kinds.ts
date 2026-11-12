@@ -89,7 +89,8 @@ const PREFIXES = new Set('sudo env time timeout nice command'.split(' '))
 const SCRIPT_FIRST = new Set('sed awk jq rg grep egrep fgrep ag'.split(' '))
 const GIT_REVIEW = new Set('status diff show log blame'.split(' '))
 
-interface Part { words: string[]; writes: string[]; piped: boolean; body?: string }
+/** words: every word, quoted or not. plain: the unquoted ones, which are code rather than data. */
+interface Part { words: string[]; plain: string[]; writes: string[]; piped: boolean; body?: string }
 
 function judge({ words, writes, piped, body }: Part): ShellWork | undefined {
   const w = [...words]
@@ -130,11 +131,12 @@ function files(prog: string, args: string[]): string[] {
   return out
 }
 
-/** Splits a command into parts, quote-aware, dropping heredoc bodies (kept on the part for apply_patch). */
+/** Splits a command into parts, quote-aware across lines, dropping heredoc bodies (kept on the part for apply_patch). */
 function split(command: string): Part[] {
   const parts: Part[] = []
-  let part: Part = { words: [], writes: [], piped: false }
+  let part: Part = { words: [], plain: [], writes: [], piped: false }
   let word: string | undefined
+  let quoted = false
   let redirect = false
   let heredoc: string | undefined
   const endWord = () => {
@@ -142,56 +144,92 @@ function split(command: string): Part[] {
     if (redirect) {
       if (word !== '/dev/null') part.writes.push(word)
       redirect = false
-    } else part.words.push(word)
+    } else {
+      part.words.push(word)
+      if (!quoted) part.plain.push(word)
+    }
     word = undefined
+    quoted = false
   }
   const endPart = (piped: boolean) => {
     endWord()
     if (part.words.length || part.writes.length) parts.push(part)
-    part = { words: [], writes: [], piped }
+    part = { words: [], plain: [], writes: [], piped }
   }
-  const lines = command.split('\n')
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li]!
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i]!
-      const rest = line.slice(i)
-      if (c === "'" || c === '"') {
-        const close = line.indexOf(c, i + 1)
-        const end = close < 0 ? line.length : close
-        word = (word ?? '') + line.slice(i + 1, end)
-        i = end
-      } else if (c === '\\') word = (word ?? '') + (line[++i] ?? '')
-      else if (/^<<-?\s*(['"]?)(\w+)\1/.test(rest)) {
-        const m = /^<<-?\s*(['"]?)(\w+)\1/.exec(rest)!
-        endWord()
-        heredoc = m[2]
-        i += m[0].length - 1
-      } else if (/^\d?>>?(?!&)/.test(rest)) {
-        endWord()
-        redirect = true
-        i += /^\d?>>?/.exec(rest)![0].length - 1
-      } else if (/^(\d|&)?>&\d/.test(rest)) {
-        endWord()
-        i += /^(\d|&)?>&\d/.exec(rest)![0].length - 1
-      } else if (rest.startsWith('&&') || rest.startsWith('||')) {
-        endPart(false)
-        i++
-      } else if (c === ';' || c === '&') endPart(false)
-      else if (c === '|') endPart(true)
-      else if (c === '<') endWord()
-      else if (/\s/.test(c)) endWord()
-      else word = (word ?? '') + c
-    }
-    if (heredoc) {
-      const body: string[] = []
-      while (++li < lines.length && lines[li]!.trim() !== heredoc) body.push(lines[li]!)
-      part.body = body.join('\n')
-      heredoc = undefined
-    }
-    endPart(false)
+  const at = (re: RegExp, i: number) => {
+    re.lastIndex = i
+    return re.exec(command)
   }
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!
+    let m: RegExpExecArray | null
+    if (c === "'" || c === '"') {
+      // A quoted string can run over several lines, like a commit message. Inside
+      // double quotes, a backslash escapes the next character, \" included.
+      let end = i + 1
+      while (end < command.length && command[end] !== c) end += c === '"' && command[end] === '\\' ? 2 : 1
+      end = Math.min(end, command.length)
+      word = (word ?? '') + command.slice(i + 1, end)
+      quoted = true
+      i = end
+    } else if (c === '\\') word = (word ?? '') + (command[++i] ?? '')
+    else if (c === '#' && word === undefined) {
+      // A comment runs to the end of the line; a quote inside it isn't one.
+      const eol = command.indexOf('\n', i)
+      i = (eol < 0 ? command.length : eol) - 1
+    } else if ((m = at(HEREDOC, i))) {
+      endWord()
+      heredoc = m[2]
+      i += m[0].length - 1
+    } else if ((m = at(REDIRECT, i))) {
+      endWord()
+      redirect = true
+      i += m[0].length - 1
+    } else if ((m = at(DUP, i))) {
+      endWord()
+      i += m[0].length - 1
+    } else if (command.startsWith('&&', i) || command.startsWith('||', i)) {
+      endPart(false)
+      i++
+    } else if (c === '\n') {
+      if (heredoc) {
+        // The body runs to the line that is just the delimiter.
+        const body: string[] = []
+        let next = i + 1
+        while (next < command.length) {
+          const eol = command.indexOf('\n', next)
+          const line = command.slice(next, eol < 0 ? command.length : eol)
+          next = eol < 0 ? command.length : eol + 1
+          if (line.trim() === heredoc) break
+          body.push(line)
+        }
+        part.body = body.join('\n')
+        heredoc = undefined
+        i = next - 1
+      }
+      endPart(false)
+    } else if (c === ';' || c === '&') endPart(false)
+    else if (c === '|') endPart(true)
+    else if (c === '<') endWord()
+    else if (/\s/.test(c)) endWord()
+    else word = (word ?? '') + c
+  }
+  endPart(false)
   return parts
+}
+
+const HEREDOC = /<<-?\s*(['"]?)(\w+)\1/y
+const REDIRECT = /\d?>>?(?!&)/y
+const DUP = /(\d|&)?>&\d/y
+
+/**
+ * The parts of a command as the shell would run them, each as its unquoted words:
+ * quoted text (a commit message) and heredoc bodies are data, not commands.
+ */
+export function commandParts(command: string): string[] {
+  const inner = SHELL_C.exec(command)
+  if (inner) return commandParts(unquote(inner[1]!.trim()))
+  return split(command).map((p) => p.plain.join(' '))
 }
 
 const unquote = (s: string) => (/^(['"])[\s\S]*\1$/.test(s) ? s.slice(1, -1) : s)
