@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseSession, type Event } from '../src/index.js'
+import { parseSession, type SessionEvent } from '../src/index.js'
 
 /**
  * The public API: one parse gives a text-free event list (always), and the text
@@ -58,7 +58,7 @@ describe('parseSession', () => {
 
   it('includes the text behind events and agent replies if text option is passed in and true', () => {
     const s = parseSession(RAW, { text: true })
-    const textOf = (k: Event['k']) => s.events.filter((e) => e.k === k).map((e) => s.text.get(e.id))
+    const textOf = (k: SessionEvent['k']) => s.events.filter((e) => e.k === k).map((e) => s.text.get(e.id))
     expect(textOf('prompt')).toEqual(['fix the flaky billing test', 'also run lint', 'thanks, ship it'])
     expect(textOf('answer')).toEqual(['Keep the retry'])
     expect(textOf('reply')).toEqual(['Looking at the test first.'])

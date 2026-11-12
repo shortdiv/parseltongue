@@ -16,6 +16,30 @@ Zero-runtime-dependency, browser-safe TypeScript parsers for **Claude Code, Code
 
 **This version is not yet a full-fidelity viewer parser.** The activity timeline omits full tool arguments/results, thinking, and unknown-event payloads. Keep the original file if you need them. Rich content blocks, source-line references, explicit format detection, and consistent validation diagnostics are follow-up work, not promises of this release.
 
+## Parse a session
+
+```ts
+import { parseSession, type SessionEvent } from '@shortdiv/parseltongue'
+
+const session = parseSession(rawJsonl)   // Claude Code, Codex or pi, detected from the first line
+session.events                           // SessionEvent[]: time-ordered and text-free
+
+const { text } = parseSession(rawJsonl, { text: true })
+text.get(session.events[0].id)           // SessionText: the text behind an event, by event id
+```
+
+Every event has an `id`, a timestamp `at`, who produced it (`by`: `you`, `agent` or `system`) and a label `k`:
+
+| `k` | by | notes |
+|---|---|---|
+| `prompt` | you | `origin`: `typed` or `queued` |
+| `shell`, `interrupt`, `answer` | you | `answer` refers to the agent's `ask` |
+| `reply`, `think`, `ask`, `result`, `usage` | agent | `usage` carries token counts |
+| `call` | agent | `tool`, raw `name`, `kind`, `status`, and `paths`, `test`, `commit`, `push` when known |
+| `compact`, `system` | system | `system` lines tagged `context` (injected) or `log` (bookkeeping) can be dropped |
+
+A call's `tool` is one name across harnesses (`Shell`, `Read`, `Patch`, `Todo`, `Mcp`…); its `kind` is what it did (`read`, `discover`, `edit`, `review`, `run`, `web`, `delegate`, `mcp`, `other`), taken from the command for shell calls. `status` is `ok`, `failed`, `declined`, `interrupted` or `unknown`. The parser only labels: what counts as your time or the agent's is up to the consumer.
+
 ## Use
 
 After building this package, import its ESM entry point:
@@ -27,7 +51,7 @@ import { normalizeSession } from '@shortdiv/parseltongue'
 const session = normalizeSession(await file.text(), file.name)
 
 console.log(session.agent)  // 'claude' | 'codex' | 'pi'
-console.log(session.turns)  // { at, who, text, entryId?, parentId? }[]
+console.log(session.turns)  // { at, who, text }[]
 console.log(session.steps)  // prompts, tool calls/outcomes, interrupts, compactions
 console.log(session.warnings)
 ```

@@ -15,7 +15,7 @@ export type Status = 'ok' | 'failed' | 'declined' | 'interrupted' | 'unknown'
  * parser accepts becomes at least one event; lines that aren't input or work are
  * `system`, named by `what`.
  */
-export type Event = { id: string; at: number; by: By } & (
+export type SessionEvent = { id: string; at: number; by: By } & (
   | { k: 'prompt'; origin: 'typed' | 'queued' }
   | { k: 'ask' | 'answer'; call: string }
   | { k: 'shell' | 'interrupt' | 'reply' | 'think' | 'compact' }
@@ -60,15 +60,15 @@ export interface Session {
   cwd?: string
   /** A subagent's or fork's parent session. */
   parent?: { session: string; via: 'subagent' | 'fork' }
-  events: Event[]
+  events: SessionEvent[]
   warnings: string[]
 }
 
 /** The text behind prompt, answer, reply and think events, by event id. */
-export type Text = Map<string, string>
+export type SessionText = Map<string, string>
 
 type Json = Record<string, any>
-type Draft<E = Event> = E extends unknown ? Omit<E, 'id'> : never
+type Draft<E = SessionEvent> = E extends unknown ? Omit<E, 'id'> : never
 const list = (v: unknown): Json[] => (Array.isArray(v) ? v : [])
 const blockText = (content: unknown, type = 'text', field = 'text') =>
   list(content).filter((b) => b?.type === type && typeof b[field] === 'string').map((b) => b[field]).join('\n')
@@ -227,7 +227,7 @@ function detect(raw: string): Harness {
 const statusOf = (acc: SessionAccumulator, c: CallStep): Status =>
   acc.declined.has(c) ? 'declined' : acc.interrupted.has(c) ? 'interrupted' : c.ok === true ? 'ok' : c.ok === false ? 'failed' : 'unknown'
 
-type CallEvent = Event & { k: 'call' }
+type CallEvent = SessionEvent & { k: 'call' }
 
 /** Reads a whole log. Shared by parseSession and normalizeSession. */
 export function readSession(raw: string, agent: Harness = detect(raw)) {
@@ -235,7 +235,7 @@ export function readSession(raw: string, agent: Harness = detect(raw)) {
   const h = piParser ?? (agent === 'codex' ? codex() : claude())
   const acc = h.acc
   const session: Session = { id: '', agent, events: [], warnings: [] }
-  const text: Text = new Map()
+  const text: SessionText = new Map()
   /** Call events by tool call id, with the step that settles their status. */
   const calls = new Map<string, { event: CallEvent; step?: CallStep }>()
   /** Calls whose result has arrived: Codex can log it twice (an end event and the output). */
@@ -243,7 +243,7 @@ export function readSession(raw: string, agent: Harness = detect(raw)) {
   /** Codex code mode: the script running now, if any. */
   let cell: string | undefined
   const push = (e: Draft, words?: string) => {
-    const event = { id: String(session.events.length + 1), ...e } as Event
+    const event = { id: String(session.events.length + 1), ...e } as SessionEvent
     session.events.push(event)
     if (words) text.set(event.id, words)
     return event
@@ -322,8 +322,8 @@ export function readSession(raw: string, agent: Harness = detect(raw)) {
  * text behind your prompts and answers and the agent's replies and reasoning, by event id.
  */
 export function parseSession(raw: string): Session
-export function parseSession(raw: string, opts: { text: true }): Session & { text: Text }
-export function parseSession(raw: string, opts?: { text?: boolean }): Session | (Session & { text: Text }) {
+export function parseSession(raw: string, opts: { text: true }): Session & { text: SessionText }
+export function parseSession(raw: string, opts?: { text?: boolean }): Session | (Session & { text: SessionText }) {
   const { session, text } = readSession(raw)
   return opts?.text ? { ...session, text } : session
 }
