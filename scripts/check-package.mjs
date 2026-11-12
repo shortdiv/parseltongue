@@ -44,17 +44,28 @@ const raw = JSON.stringify({ type: 'session', version: 3, id: 'package-test', cw
 assert.equal(parser.parseSession(raw).id, 'package-test')
 assert.equal(parser.parseSession(raw).agent, 'pi')
 assert.equal(parser.reader('pi').entries.size, 0)
-assert.deepEqual(Object.keys(parser).sort(), ['cursorReader', 'detect', 'isInjectedCodexText', 'opencodeReader', 'parseSession', 'reader', 'zedReader'])
+assert.deepEqual(Object.keys(parser).sort(), ['detect', 'isInjectedCodexText', 'parseSession', 'reader'])
 `)
   run(process.execPath, ['check.mjs'])
 
   // Compile a consumer with only ES libs: published declarations must not need @types/node.
   writeFileSync(join(temp, 'check.ts'), `
-import { parseSession, reader, type Session, type PiReader } from '@shortdiv/parseltongue'
+import { parseSession, reader, type Session, type PiReader, type Reader, type OpencodeRow, type CursorBubble, type ZedThread } from '@shortdiv/parseltongue'
 const session: Session = parseSession('')
 const parser: PiReader = reader('pi')
 parser.read('')
-export { session, parser }
+const opencode: Reader<OpencodeRow> = reader('opencode', { id: 'o' })
+opencode.read({ message: { role: 'user', created: 1 } })
+const cursor: Reader<CursorBubble> = reader('cursor', { id: 'c' })
+cursor.read({ type: 1 })
+const zed: Reader<ZedThread> = reader('zed', { id: 'z' })
+zed.read({ updatedAt: '2026-01-01T00:00:00Z' })
+const snapshot: Session = opencode.session()
+// @ts-expect-error Database readers take rows, not log lines.
+opencode.read('')
+// @ts-expect-error Log readers take lines, not rows.
+parser.read({})
+export { session, parser, snapshot, cursor, zed }
 `)
   writeFileSync(join(temp, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
     target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true,

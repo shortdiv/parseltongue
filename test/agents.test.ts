@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { cursorReader, opencodeReader, parseSession, reader, zedReader, type Harness, type SessionEvent } from '../src/index.js'
+import { parseSession, reader, type Harness, type SessionEvent } from '../src/index.js'
 import { isCommitCommand, isPushCommand, isTestCommand } from '../src/commands.js'
 import { outcomes } from '../src/events.js'
 import { kindOf, shellKind, toolOf } from '../src/kinds.js'
@@ -25,7 +25,7 @@ const result = (id: string, is_error = false, content = '') => ({
 })
 
 /** Reads lines with one agent's reader, as a live consumer would. */
-function read(agent: Harness, lines: (object | string)[]) {
+function read(agent: Extract<Harness, 'claude' | 'codex' | 'pi'>, lines: (object | string)[]) {
   const r = reader(agent, { text: true })
   const events = lines.flatMap((l) => r.read(typeof l === 'string' ? l : JSON.stringify(l)))
   return { events, calls: outcomes(events), text: r.text, info: r.info }
@@ -463,14 +463,14 @@ describe('rework', () => {
 
 describe('opencode', () => {
   it('reads your prompts, the reply at its completion time, its tokens, and tool calls with their results', () => {
-    const r = opencodeReader()
+    const r = reader('opencode')
     const events = [
-      ...r.message({ role: 'user', created: 1_000, directory: '/work/app' }),
-      ...r.message({ role: 'assistant', created: 2_000, completed: 9_000, model: 'm', tokens: { input: 5, output: 3, reasoning: 2, cacheRead: 7 } }),
-      ...r.message({ role: 'assistant', created: 10_000, error: 'MessageAbortedError' }),
-      ...r.part({ type: 'tool', callId: 't1', tool: 'bash', status: 'completed', start: 3_000, end: 4_000 }),
-      ...r.part({ type: 'tool', callId: 't2', tool: 'read', status: 'error', start: 5_000, end: 6_000 }),
-      ...r.part({ type: 'text' }),
+      ...r.read({ message: { role: 'user', created: 1_000, directory: '/work/app' } }),
+      ...r.read({ message: { role: 'assistant', created: 2_000, completed: 9_000, model: 'm', tokens: { input: 5, output: 3, reasoning: 2, cacheRead: 7 } } }),
+      ...r.read({ message: { role: 'assistant', created: 10_000, error: 'MessageAbortedError' } }),
+      ...r.read({ part: { type: 'tool', callId: 't1', tool: 'bash', status: 'completed', start: 3_000, end: 4_000 } }),
+      ...r.read({ part: { type: 'tool', callId: 't2', tool: 'read', status: 'error', start: 5_000, end: 6_000 } }),
+      ...r.read({ part: { type: 'text' } }),
     ]
     expect(events.map((e) => [e.at, e.by, label(e)])).toEqual([
       [1_000, 'you', 'prompt'], [9_000, 'agent', 'reply'], [9_000, 'agent', 'usage'], [10_000, 'agent', 'reply'], [10_000, 'you', 'interrupt'], [10_000, 'agent', 'usage'],
@@ -481,11 +481,11 @@ describe('opencode', () => {
   })
 
   it('emits each row once however often it is passed: a call, then its result when it ends', () => {
-    const r = opencodeReader()
-    const part = (status: string) => r.part({ type: 'tool', callId: 't1', tool: 'bash', status, start: 3_000, end: status === 'running' ? undefined : 4_000 })
-    const reply = (completed?: number) => r.message({ id: 'm2', role: 'assistant', created: 2_000, completed, tokens: { input: 5 } })
+    const r = reader('opencode')
+    const part = (status: string) => r.read({ part: { type: 'tool', callId: 't1', tool: 'bash', status, start: 3_000, end: status === 'running' ? undefined : 4_000 } })
+    const reply = (completed?: number) => r.read({ message: { id: 'm2', role: 'assistant', created: 2_000, completed, tokens: { input: 5 } } })
     const events = [
-      ...r.message({ id: 'm1', role: 'user', created: 1_000 }), ...r.message({ id: 'm1', role: 'user', created: 1_000 }),
+      ...r.read({ message: { id: 'm1', role: 'user', created: 1_000 } }), ...r.read({ message: { id: 'm1', role: 'user', created: 1_000 } }),
       ...reply(), ...part('running'), ...part('running'), ...part('completed'), ...part('completed'), ...reply(9_000), ...reply(9_000),
     ]
     expect(events.map((e) => [e.at, label(e)])).toEqual([[1_000, 'prompt'], [3_000, 'call bash'], [4_000, 'result ok'], [9_000, 'reply'], [9_000, 'usage']])
@@ -494,36 +494,36 @@ describe('opencode', () => {
 
 describe('cursor', () => {
   it('reads you (type 1) and the agent, and tokens only when Cursor stored them', () => {
-    const r = cursorReader()
+    const r = reader('cursor')
     const events = [
-      ...r.bubble({ createdAt: '2026-01-01T00:00:00Z', type: 1, model: 'default' }),
-      ...r.bubble({ createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens: 4, outputTokens: 6, model: 'gpt' }),
+      ...r.read({ createdAt: '2026-01-01T00:00:00Z', type: 1, model: 'default' }),
+      ...r.read({ createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens: 4, outputTokens: 6, model: 'gpt' }),
     ]
     expect(events.map((e) => [e.by, e.k])).toEqual([['you', 'prompt'], ['agent', 'reply'], ['agent', 'usage']])
     expect(r.info.model).toBe('gpt')
   })
 
   it('emits a bubble once, and its usage once Cursor has stored tokens', () => {
-    const r = cursorReader()
-    const bubble = (inputTokens?: number) => r.bubble({ bubbleId: 'b1', createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens })
+    const r = reader('cursor')
+    const bubble = (inputTokens?: number) => r.read({ bubbleId: 'b1', createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens })
     expect([...bubble(), ...bubble(), ...bubble(4), ...bubble(4)].map((e) => e.k)).toEqual(['reply', 'usage'])
   })
 })
 
 describe('zed', () => {
   it('reads each update as agent activity, in the first folder', () => {
-    const r = zedReader()
+    const r = reader('zed')
     const events = [
-      ...r.thread({ updatedAt: '2026-01-01T00:00:00Z', folders: '["/work/app","/work/lib"]' }),
-      ...r.thread({ updatedAt: '2026-01-01T00:01:00Z', folders: '/other' }),
+      ...r.read({ updatedAt: '2026-01-01T00:00:00Z', folders: '["/work/app","/work/lib"]' }),
+      ...r.read({ updatedAt: '2026-01-01T00:01:00Z', folders: '/other' }),
     ]
     expect(events.map((e) => [e.by, label(e)])).toEqual([['agent', 'system thread_updated'], ['agent', 'system thread_updated']])
     expect(r.info.cwd).toBe('/work/app')
   })
 
   it('skips a thread passed again with no change', () => {
-    const r = zedReader()
-    expect([...r.thread({ updatedAt: '2026-01-01T00:00:00Z' }), ...r.thread({ updatedAt: '2026-01-01T00:00:00Z' })]).toHaveLength(1)
+    const r = reader('zed')
+    expect([...r.read({ updatedAt: '2026-01-01T00:00:00Z' }), ...r.read({ updatedAt: '2026-01-01T00:00:00Z' })]).toHaveLength(1)
   })
 })
 

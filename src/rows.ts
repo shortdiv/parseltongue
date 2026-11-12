@@ -1,4 +1,4 @@
-import { sequence, type SessionEvent, type SessionInfo } from './events.js'
+import { sequence, withSession, type Reader, type SessionEvent, type SessionInfo } from './events.js'
 import { callDraft } from './commands.js'
 import { parseISO } from './util.js'
 
@@ -46,14 +46,16 @@ export interface OpencodePart {
   end?: number
 }
 
-export function opencodeReader() {
-  const info: SessionInfo = {}
+export type OpencodeRow = { message: OpencodeMessage } | { part: OpencodePart }
+
+export function opencodeReader(opts: { id?: string } = {}): Reader<OpencodeRow> {
+  const info: SessionInfo = opts.id === undefined ? {} : { id: opts.id }
   const number = sequence()
   /** Messages emitted, and calls started and settled. */
   const messages = new Set<string>()
   const started = new Set<string>()
   const settled = new Set<string>()
-  return {
+  const rows = {
     info,
     /**
      * A reply is logged when it starts; it's at its completion time if it has one.
@@ -95,6 +97,10 @@ export function opencodeReader() {
       return events
     },
   }
+  return withSession<OpencodeRow>('opencode', {
+    info, text: new Map(), warnings: () => [],
+    read: (row) => 'message' in row ? rows.message(row.message) : rows.part(row.part),
+  })
 }
 
 /**
@@ -117,15 +123,15 @@ export interface CursorBubble {
   model?: string
 }
 
-export function cursorReader() {
-  const info: SessionInfo = {}
+export function cursorReader(opts: { id?: string } = {}): Reader<CursorBubble> {
+  const info: SessionInfo = opts.id === undefined ? {} : { id: opts.id }
   const number = sequence()
   /** Bubbles emitted, and those whose usage was. Cursor can fill in token counts later. */
   const bubbles = new Set<string>()
   const counted = new Set<string>()
-  return {
-    info,
-    bubble(b: CursorBubble): SessionEvent[] {
+  return withSession<CursorBubble>('cursor', {
+    info, text: new Map(), warnings: () => [],
+    read(b): SessionEvent[] {
       const at = parseISO(b.createdAt)
       if (at === undefined) return []
       const id = b.bubbleId
@@ -140,7 +146,7 @@ export function cursorReader() {
       }
       return events
     },
-  }
+  })
 }
 
 /**
@@ -154,20 +160,20 @@ export interface ZedThread {
   folders?: string
 }
 
-export function zedReader() {
-  const info: SessionInfo = {}
+export function zedReader(opts: { id?: string } = {}): Reader<ZedThread> {
+  const info: SessionInfo = opts.id === undefined ? {} : { id: opts.id }
   const number = sequence()
   let last: string | undefined
-  return {
-    info,
-    thread(t: ZedThread): SessionEvent[] {
+  return withSession<ZedThread>('zed', {
+    info, text: new Map(), warnings: () => [],
+    read(t): SessionEvent[] {
       const at = parseISO(t.updatedAt)
       if (at === undefined || t.updatedAt === last) return []
       last = t.updatedAt
       if (info.cwd === undefined && t.folders) info.cwd = firstFolder(t.folders)
       return [number({ at, by: 'agent', k: 'system', what: 'thread_updated' })]
     },
-  }
+  })
 }
 
 function firstFolder(raw: string): string | undefined {

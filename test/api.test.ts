@@ -99,6 +99,37 @@ describe('parseSession', () => {
     expect([claude.agent, claude.events.map((e) => e.k)]).toEqual(['claude', ['prompt']])
   })
 
+  it.each(['claude', 'codex', 'pi'] as const)('snapshots a %s log just like parseSession', (agent) => {
+    const folder = join(DIR, agent)
+    const name = readdirSync(folder).find((f) => f.endsWith('.jsonl'))!
+    const raw = readFileSync(join(folder, name), 'utf8')
+    const r = reader(agent, { text: true })
+    expect(r.session()).toEqual({ id: '', agent, events: [], calls: {}, warnings: [] })
+    for (const line of raw.split('\n')) r.read(line)
+    expect(r.session()).toEqual(parseSession(raw))
+    expect(r.text).toEqual(parseSession(raw, { text: true }).text)
+  })
+
+  it('snapshots database events, call statuses and metadata without changing older snapshots', () => {
+    const r = reader('opencode', { id: 'saved-id' })
+    expect(r.session()).toEqual({ id: 'saved-id', agent: 'opencode', events: [], calls: {}, warnings: [] })
+    const prompt = r.read({ message: { id: 'm', role: 'user', created: 1, directory: '/work' } })
+    const part = { type: 'tool', callId: 'c', tool: 'bash', start: 2 }
+    const call = r.read({ part })
+    const before = r.session()
+    expect(before.calls).toEqual({ c: 'unknown' })
+    const result = r.read({ part: { ...part, status: 'completed', end: 3 } })
+    expect(r.session()).toEqual({
+      id: 'saved-id', agent: 'opencode', cwd: '/work',
+      events: [...prompt, ...call, ...result], calls: { c: 'ok' }, warnings: [],
+    })
+    expect(before.events).toEqual([...prompt, ...call])
+    expect(before.calls).toEqual({ c: 'unknown' })
+    expect(r.text.size).toBe(0)
+    expect(reader('cursor', { id: 'cursor-id' }).session().id).toBe('cursor-id')
+    expect(reader('zed').session()).toEqual({ id: '', agent: 'zed', events: [], calls: {}, warnings: [] })
+  })
+
   it('reads a byte order mark when following a file a line at a time', () => {
     const pi = reader('pi')
     pi.read('﻿' + JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' }))

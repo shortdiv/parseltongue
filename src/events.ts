@@ -70,6 +70,18 @@ export interface SessionInfo {
   parent?: { session: string; via: 'subagent' | 'fork' }
 }
 
+/** The harnesses supported by the event readers. */
+export type Harness = 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor' | 'zed'
+
+export interface Session extends SessionInfo {
+  id: string
+  agent: Harness | 'unknown'
+  events: SessionEvent[]
+  /** Each call's final status, by call id: its result's, or unknown without one. */
+  calls: Record<string, Status>
+  warnings: string[]
+}
+
 /** An event before it has an id, with its text. */
 export type Draft = (SessionEvent extends infer E ? (E extends unknown ? Omit<E, 'id'> : never) : never) & { text?: string }
 
@@ -92,10 +104,12 @@ export interface Adapter {
   line?(): void
 }
 
-/** Streams a log one line at a time. Each event comes out once and never changes. */
-export interface Reader {
+/** Streams lines or database rows. Each event comes out once and never changes. */
+export interface Reader<In = string> {
   info: SessionInfo
-  read(line: string): SessionEvent[]
+  read(input: In): SessionEvent[]
+  /** A snapshot of the session read so far. */
+  session(): Session
   /** With { text: true }: the text behind each event read so far, by event id. */
   text: SessionText
   warnings(): string[]
@@ -117,12 +131,33 @@ export function sequence() {
   }
 }
 
+/** Keeps emitted events and builds a fresh session snapshot on demand. */
+export function withSession<In>(agent: Harness, source: Omit<Reader<In>, 'session'>): Reader<In> {
+  const events: SessionEvent[] = []
+  return {
+    ...source,
+    read(input) {
+      const added = source.read(input)
+      events.push(...added)
+      return added
+    },
+    session() {
+      const session: Session = {
+        ...source.info, id: source.info.id ?? '', agent,
+        events: [...events], calls: outcomes(events), warnings: [...source.warnings()],
+      }
+      for (const k of Object.keys(session) as (keyof Session)[]) if (session[k] === undefined) delete session[k]
+      return session
+    },
+  }
+}
+
 /** Wraps an adapter: parses each line, numbers its events, keeps text if asked. */
-export function readWith(adapter: Adapter, opts: { text?: boolean } = {}): Reader {
+export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolean } = {}): Reader {
   const text: SessionText = new Map()
   const number = sequence()
   let first = true
-  return {
+  return withSession<string>(agent, {
     info: adapter.info,
     text,
     warnings: () => adapter.warnings?.() ?? [],
@@ -156,7 +191,7 @@ export function readWith(adapter: Adapter, opts: { text?: boolean } = {}): Reade
       adapter.emitted?.(events)
       return events
     },
-  }
+  })
 }
 
 /** Each call's final status: its result's, or unknown without one. */

@@ -51,6 +51,7 @@ import { reader } from '@shortdiv/parseltongue'
 const r = reader('claude')   // or 'codex', 'pi'; with { text: true }, r.text keeps the text
 for await (const line of lines) render(r.read(line))   // the events each line adds
 r.info                       // id, cwd, model, version, parent, as the log reveals them
+r.session()                  // snapshot: events read so far, call statuses, info and warnings
 ```
 
 Each event comes out once and stays as it was, so a live view never has to revise what it showed.
@@ -68,11 +69,28 @@ Versions 1 (linear), 2 and 3 (tree) are handled. Events come from every branch i
 
 ### Databases: opencode, Cursor and Zed
 
-`opencodeReader()`, `cursorReader()` and `zedReader()` turn rows you read from each tool's SQLite database into events. Each documents the fields it needs; read only those. Rows change in place, so pass a row again whenever it changes: with its id (`callId`, `id`, `bubbleId`), each reader emits only what's new, like a tool part's result once it ends.
+Use the same `reader(agent)` API for rows you read from each tool's SQLite database:
+
+```ts
+const opencode = reader('opencode', { id: 'session-id' })
+opencode.read({ message: { id: 'm1', role: 'user', created: 1_000 } })
+opencode.read({ part: { type: 'tool', callId: 't1', tool: 'bash', start: 2_000 } })
+const session = opencode.session() // events, call statuses, info and warnings
+
+const cursor = reader('cursor', { id: 'composer-id' })
+cursor.read({ bubbleId: 'b1', createdAt: '2026-01-01T00:00:00Z', type: 1 })
+
+const zed = reader('zed', { id: 'thread-id' })
+zed.read({ updatedAt: '2026-01-01T00:00:00Z', folders: '["/work/app"]' })
+```
+
+The optional `id` supplies the session id; without it, `session().id` is empty. Inputs are `OpencodeRow` (`{ message } | { part }`), `CursorBubble` and `ZedThread`; their types document the fields to read. Read only those fields, especially in Cursor's database, which also holds credentials. These readers do not open databases or retain text.
+
+Rows change in place, so pass a row again whenever it changes: with its id (`callId`, `id`, `bubbleId`), each reader emits only what's new, like a tool part's result once it ends. Zed emits an event when the thread's update timestamp changes.
 
 ## Public API
 
-Functions: `parseSession`, `reader`, `opencodeReader`, `cursorReader`, `zedReader`, `detect` and `isInjectedCodexText`. Every public type is exported from [`src/types.ts`](src/types.ts); everything else is internal.
+Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`. Every public type is exported from [`src/types.ts`](src/types.ts); everything else is internal.
 
 ## Compatibility and limitations
 

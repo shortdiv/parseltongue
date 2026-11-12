@@ -198,7 +198,7 @@ export function piReader(opts: { text?: boolean } = {}): PiReader {
     return { entries: path.reverse(), complete: true }
   }
 
-  const reader = readWith(adapter, opts)
+  const reader = readWith('pi', adapter, opts)
   return Object.assign(reader, {
     metadata,
     entries,
