@@ -121,12 +121,18 @@ export function sequence() {
 export function readWith(adapter: Adapter, opts: { text?: boolean } = {}): Reader {
   const text: SessionText = new Map()
   const number = sequence()
+  let first = true
   return {
     info: adapter.info,
     text,
     warnings: () => adapter.warnings?.() ?? [],
     read(line) {
       adapter.line?.()
+      // Only the start of a file can carry a byte order mark.
+      if (first) {
+        first = false
+        if (line.startsWith('﻿')) line = line.slice(1)
+      }
       if (!line.trim()) return []
       let record: unknown
       let json = true

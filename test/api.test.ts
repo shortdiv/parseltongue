@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseSession, type SessionEvent } from '../src/index.js'
+import { parseSession, reader, type SessionEvent } from '../src/index.js'
 
 /**
  * The public API: one parse gives a text-free event list (always), and the text
@@ -97,5 +97,14 @@ describe('parseSession', () => {
     expect([pi.agent, pi.id, pi.cwd, pi.warnings]).toEqual(['pi', 'p1', '/work', []])
     const claude = parseSession('\uFEFF' + JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } }))
     expect([claude.agent, claude.events.map((e) => e.k)]).toEqual(['claude', ['prompt']])
+  })
+
+  it('reads a byte order mark when following a file a line at a time', () => {
+    const pi = reader('pi')
+    pi.read('﻿' + JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' }))
+    expect([pi.info.id, pi.info.cwd, pi.warnings()]).toEqual(['p1', '/work', []])
+    const claude = reader('claude')
+    const events = claude.read('﻿' + JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } }))
+    expect(events.map((e) => e.k)).toEqual(['prompt'])
   })
 })
