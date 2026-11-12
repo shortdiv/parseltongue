@@ -274,7 +274,8 @@ export function codex(): Adapter {
       if (l.type === 'response_item' && (p.type === 'function_call' || p.type === 'custom_tool_call') && id && p.name) {
         let args: Record<string, unknown> = {}
         try {
-          if (p.arguments) args = JSON.parse(p.arguments)
+          const value: unknown = p.arguments ? JSON.parse(p.arguments) : undefined
+          if (value && typeof value === 'object' && !Array.isArray(value)) args = value as Record<string, unknown>
         } catch {}
         if (p.name === CODE_CELL) {
           // Code mode: the script is a call; the calls it makes are within it.

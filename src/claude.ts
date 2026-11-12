@@ -56,16 +56,17 @@ interface Block {
   content?: string | { type?: string; text?: string }[]
 }
 
-const blocks = (l: Line): Block[] => (Array.isArray(l.message?.content) ? l.message.content : [])
+const contentBlocks = (c: unknown): Block[] => Array.isArray(c) ? c.filter((b) => b && typeof b === 'object' && !Array.isArray(b)) : []
+const blocks = (l: Line) => contentBlocks(l.message?.content)
 
 const textOf = (c: string | Block[] | undefined) =>
-  typeof c === 'string' ? c : (c ?? []).map((b) => b.text).filter((t): t is string => typeof t === 'string').join('\n')
+  typeof c === 'string' ? c : contentBlocks(c).map((b) => b.text).filter((t): t is string => typeof t === 'string').join('\n')
 
 /** Text of a user line that isn't tool results. */
 function userText(l: Line): string | undefined {
   if (l.type !== 'user' || l.isMeta || l.isSidechain) return undefined
   const c = l.message?.content
-  if (Array.isArray(c) && c.some((b) => b.type === 'tool_result')) return undefined
+  if (blocks(l).some((b) => b.type === 'tool_result')) return undefined
   return textOf(c) || undefined
 }
 
@@ -99,7 +100,7 @@ const isInterrupt = (text: string | undefined) => text?.startsWith('[Request int
 
 function resultText(b: Block): string | undefined {
   if (typeof b.content === 'string') return b.content
-  if (Array.isArray(b.content)) return b.content.map((p) => p.text ?? '').join('\n')
+  if (Array.isArray(b.content)) return textOf(b.content)
   return undefined
 }
 
@@ -199,7 +200,7 @@ export function claude(): Adapter {
 
       // One response is logged across several lines that repeat the same usage, so count each message once.
       const msg = l.message
-      if (l.type === 'assistant' && msg?.usage && !(msg.id && messages.has(msg.id))) {
+      if (l.type === 'assistant' && own && msg?.usage && !(msg.id && messages.has(msg.id))) {
         if (msg.id) messages.add(msg.id)
         if (msg.model && !msg.model.startsWith('<')) info.model = msg.model
         const u = msg.usage

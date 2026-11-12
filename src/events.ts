@@ -196,7 +196,7 @@ export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolea
 
 /** Each call's final status: its result's, or unknown without one. */
 export function outcomes(events: SessionEvent[]): Record<string, Status> {
-  const calls: Record<string, Status> = {}
+  const calls: Record<string, Status> = Object.create(null)
   for (const e of events) {
     if (e.k === 'call') calls[e.call] ??= 'unknown'
     else if (e.k === 'result' && e.call in calls) calls[e.call] = e.status

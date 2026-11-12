@@ -199,7 +199,8 @@ export function piReader(opts: { text?: boolean } = {}): PiReader {
   }
 
   const reader = readWith('pi', adapter, opts)
-  return Object.assign(reader, {
+  return {
+    ...reader,
     metadata,
     entries,
     diagnostics,
@@ -207,5 +208,5 @@ export function piReader(opts: { text?: boolean } = {}): PiReader {
     get leafId() {
       return leaf?.id
     },
-  })
+  }
 }

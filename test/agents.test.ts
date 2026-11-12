@@ -70,6 +70,35 @@ describe('claude code', () => {
     expect(parent.events.map(label)).toEqual(['prompt', 'system subagent', 'system subagent', 'system subagent', 'system subagent'])
   })
 
+  it('excludes inline subagent usage and model changes, but keeps them in the subagent file', () => {
+    const child = {
+      type: 'assistant', timestamp: at(), sessionId: 'parent', isSidechain: true, agentId: 'child',
+      message: { id: 'child-msg', model: 'child-model', content: [], usage: { input_tokens: 123, output_tokens: 45 } },
+    }
+    const parent = read('claude', [
+      { ...prompt('hello'), sessionId: 'parent' },
+      { type: 'assistant', timestamp: at(), message: { id: 'parent-msg', model: 'parent-model', content: [], usage: { input_tokens: 10 } } },
+      child,
+    ])
+    expect(parent.info.model).toBe('parent-model')
+    expect(only(parent.events, 'usage').map((e) => e.tokens.input)).toEqual([10])
+    const own = read('claude', [child])
+    expect(own.info.model).toBe('child-model')
+    expect(only(own.events, 'usage').map((e) => e.tokens.input)).toEqual([123])
+  })
+
+  it('skips invalid content blocks without losing later records', () => {
+    const { events, text } = read('claude', [
+      { type: 'assistant', timestamp: at(), message: { content: [null, 42, [], { type: 'text', text: 'kept' }] } },
+      { type: 'user', timestamp: at(), message: { content: [null, { type: 'text', text: 'hello' }] } },
+      call('c', 'Read', {}),
+      { type: 'user', timestamp: at(), message: { content: [null, { type: 'tool_result', tool_use_id: 'c', content: [null, { type: 'text', text: 'ok' }] }] } },
+      prompt('continue'),
+    ])
+    expect(events.map(label)).toEqual(['reply', 'prompt', 'call Read', 'result ok', 'prompt'])
+    expect([...text.values()]).toEqual(['kept', 'hello', 'continue'])
+  })
+
   it('keeps a question you declined', () => {
     const { events } = read('claude', [
       call('q', 'AskUserQuestion', { questions: [] }),
@@ -121,6 +150,15 @@ describe('codex', () => {
   let n = 0
   const command = (cmd: string, status: string) =>
     cx('event_msg', { type: 'item_completed', item: { id: `item${n++}`, type: 'CommandExecution', status, command: ['/bin/zsh', '-lc', cmd] } })
+
+  it.each(['null', '[]', '42', '"text"', '{broken'])('tolerates non-object call arguments: %s', (args) => {
+    const { events } = read('codex', [
+      cx('response_item', { type: 'function_call', call_id: 'c', name: 'exec_command', arguments: args }),
+      cx('response_item', { type: 'function_call_output', call_id: 'c', output: 'Exit code: 0' }),
+      prompt('continue'),
+    ])
+    expect(events.map(label)).toEqual(['call exec_command', 'result ok', 'prompt'])
+  })
 
   it('reads how a Codex session ended', () => {
     const { events, calls } = read('codex', [
@@ -267,6 +305,19 @@ describe('codex', () => {
   })
 })
 
+describe('call statuses', () => {
+  it('treats prototype property names as ordinary call IDs', () => {
+    const r = reader('opencode')
+    for (const callId of ['toString', '__proto__', 'constructor']) r.read({ part: { type: 'tool', callId, tool: 'bash', start: 1 } })
+    const before = r.session()
+    expect(Object.keys(before.calls)).toEqual(['toString', '__proto__', 'constructor'])
+    expect(Object.values(before.calls)).toEqual(['unknown', 'unknown', 'unknown'])
+    for (const callId of Object.keys(before.calls)) r.read({ part: { type: 'tool', callId, start: 1, status: 'completed' } })
+    expect(Object.values(r.session().calls)).toEqual(['ok', 'ok', 'ok'])
+    expect(Object.values(before.calls)).toEqual(['unknown', 'unknown', 'unknown'])
+  })
+})
+
 describe('detectors', () => {
   it('spots tests and commits', () => {
     expect(isTestCommand('cd app && pnpm test --run')).toBe(true)
@@ -286,6 +337,17 @@ describe('detectors', () => {
 })
 
 describe('pi', () => {
+  it('keeps leafId live as entries are appended', () => {
+    const r = reader('pi')
+    expect(r.leafId).toBeUndefined()
+    r.read(JSON.stringify({ type: 'session', version: 3, id: 's', timestamp: at() }))
+    for (const [id, parentId] of [['a', null], ['b', 'a']] as const) {
+      r.read(JSON.stringify({ type: 'message', id, parentId, timestamp: at(), message: { role: 'user', content: 'hello' } }))
+      expect(r.leafId).toBe(id)
+      expect(r.getPath().entries.at(-1)?.id).toBe(id)
+    }
+  })
+
   const start = Date.parse('2026-11-02T14:00:00Z')
   function session() {
     const rows: object[] = [{ type: 'session', version: 3, id: 'session-id', cwd: '/work/project', parentSession: '/parent.jsonl', timestamp: new Date(start).toISOString() }]
