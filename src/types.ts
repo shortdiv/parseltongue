@@ -5,17 +5,6 @@ export interface TokenCounts {
   cacheWrite: number
 }
 
-/** Observed events and heuristics, not a score or a judgment of session quality. */
-export interface Signals {
-  prompts: number
-  interrupts: number
-  rejections: number
-  toolCalls: number
-  failedCalls: number
-  rework: number
-  compactions: number
-}
-
 export const emptyTokens = (): TokenCounts => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
 
 export const addTokens = (a: TokenCounts, b: TokenCounts): TokenCounts => ({

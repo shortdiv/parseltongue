@@ -1,11 +1,11 @@
-import type { SessionAccumulator } from './accumulator.js'
-import { classify } from './kinds.js'
-import { isAskTool, isCommitCommand, isPushCommand, isTestCommand, type CallStep } from './timeline.js'
+import { callDraft, isAskTool } from './commands.js'
+import { blockText, type Adapter, type Draft, type Status } from './events.js'
+import { reworks, ReworkTracker, type Edit } from './rework.js'
 import { parseISO } from './types.js'
 
 /**
- * Claude Code transcripts: ~/.claude/projects/<project>/<session>.jsonl.
- * Only the fields we read; anything may be absent.
+ * Claude Code transcripts: ~/.claude/projects/<project>/<session>.jsonl, and a
+ * subagent's under <session>/subagents/. Only the fields we read; anything may be absent.
  */
 interface Line {
   type?: string
@@ -13,13 +13,16 @@ interface Line {
   timestamp?: string
   version?: string
   cwd?: string
-  gitBranch?: string
+  sessionId?: string
+  agentId?: string
+  parentSessionId?: string
   isMeta?: boolean
   isSidechain?: boolean
   isCompactSummary?: boolean
   /** Who a user line came from: "human" for what you typed, else e.g. "task-notification". Newer logs only. */
   origin?: { kind?: string }
   attachment?: { type?: string; commandMode?: string; prompt?: string | Block[] }
+  operation?: string
   message?: {
     id?: string
     model?: string
@@ -50,7 +53,7 @@ interface Block {
     edits?: { old_string?: string; new_string?: string }[]
   }
   // tool_result content is a string or a list of text parts.
-  content?: string | { text?: string }[]
+  content?: string | { type?: string; text?: string }[]
 }
 
 const blocks = (l: Line): Block[] => (Array.isArray(l.message?.content) ? l.message.content : [])
@@ -100,126 +103,112 @@ function resultText(b: Block): string | undefined {
   return undefined
 }
 
-export function ingestClaudeLine(acc: SessionAccumulator, raw: string) {
-  let line: Line
-  try {
-    line = JSON.parse(raw)
-  } catch {
-    return
-  }
-  if (!line || typeof line !== 'object') return
-  const at = parseISO(line.timestamp)
-  if (at === undefined) return
+/** A declined tool call comes back as an error carrying this message. */
+const DECLINED = "doesn't want to proceed"
 
-  if (acc.projectPath === undefined && line.cwd) acc.projectPath = line.cwd
-  if (line.version) acc.version = line.version
-  if (line.gitBranch && line.gitBranch !== 'HEAD') acc.branch = line.gitBranch
-  const typed = claudeTyped(line)
-  const text = typed?.text
-  acc.event(at, text !== undefined && !typed?.shell && !isInterrupt(text))
-  countSignals(acc, line, typed, at)
+const LOGS = new Set([
+  'api-request', 'api-request-blob', 'api-request-shape', 'frame-link', 'file-history-snapshot', 'file-history-delta',
+  'mode', 'permission-mode', 'atis-latch', 'last-prompt', 'ai-title', 'summary', 'cost-state', 'queue-operation',
+  'fork-context-ref', 'artifact-comment-monitor', 'artifact-autoreact-ledger',
+])
+const SYSTEM_LOGS = new Set(['informational', 'local_command', 'stop_hook_summary'])
 
-  // One response is logged across several lines that repeat the same usage,
-  // so count each message id once.
-  const msg = line.message
-  if (line.type === 'assistant' && msg?.usage) {
-    if (msg.id) {
-      if (acc.seenMessageIds.has(msg.id)) return
-      acc.seenMessageIds.add(msg.id)
-    }
-    if (msg.model && !msg.model.startsWith('<')) acc.model = msg.model
-    const u = msg.usage
-    acc.addTokens(
-      {
-        input: u.input_tokens ?? 0,
-        output: u.output_tokens ?? 0,
-        cacheRead: u.cache_read_input_tokens ?? 0,
-        cacheWrite: u.cache_creation_input_tokens ?? 0,
-      },
-      at,
-    )
-  }
-}
+export function claude(): Adapter {
+  const info: Adapter['info'] = {}
+  const messages = new Set<string>()
+  const calls = new Set<string>()
+  /** Calls waiting for their result, with the edits they'd make. */
+  const open = new Map<string, Edit[]>()
+  /** Questions waiting for your answer, by tool-use id. */
+  const asks = new Set<string>()
+  const tracker = new ReworkTracker()
+  /** Claude Code logs an interrupt line right after a declined tool call; it's part of the decline. */
+  let afterDecline = false
 
-function countSignals(acc: SessionAccumulator, line: Line, typed: ReturnType<typeof claudeTyped>, at: number) {
-  const text = typed?.text
-  const signals = acc.signals
-  const timeline = acc.timeline
-  if (line.type === 'system' && line.subtype === 'compact_boundary') {
-    signals.compactions++
-    timeline.push({ at, k: 'compact' })
-  }
-  if (isInterrupt(text)) {
-    if (!acc.afterDecline) {
-      signals.interrupts++
-      timeline.push({ at, k: 'interrupt' })
-    }
-  } else if (typed?.shell) {
-    timeline.push({ at, k: 'shell' })
-  } else if (text !== undefined) {
-    signals.prompts++
-    timeline.push({ at, k: 'prompt' })
-  }
-  if (text !== undefined || line.type === 'assistant') acc.afterDecline = false
-  if (line.isSidechain) return
+  return {
+    info,
+    read(l: Line) {
+      info.id ||= (l.isSidechain && l.agentId) || l.sessionId || undefined
+      if (l.type === 'fork-context-ref' && l.parentSessionId) info.parent = { session: l.parentSessionId, via: 'fork' }
+      // A subagent's own file: its lines carry the parent's sessionId. (Older logs keep
+      // subagent lines inside the parent's file, under the parent's own id.)
+      if (l.isSidechain && l.sessionId && l.sessionId !== info.id && !info.parent) info.parent = { session: l.sessionId, via: 'subagent' }
+      const at = parseISO(l.timestamp)
+      if (at === undefined) return undefined
+      if (info.cwd === undefined && l.cwd) info.cwd = l.cwd
+      if (l.version) info.version = l.version
 
-  for (const block of blocks(line)) {
-    if (block.type === 'tool_use') {
-      if (!block.id || acc.seenToolIds.has(block.id)) continue
-      acc.seenToolIds.add(block.id)
-      if (block.name && isAskTool(block.name)) {
-        acc.asks.add(block.id)
-        timeline.push({ at, k: 'ask', call: block.id })
-        continue
+      const events: Draft[] = []
+      if (l.type === 'assistant' && !l.isSidechain) {
+        if (blocks(l).some((b) => b.type === 'thinking')) events.push({ at, by: 'agent', k: 'think', text: blockText(l.message?.content, 'thinking', 'thinking') })
+        const reply = blockText(l.message?.content)
+        if (reply) events.push({ at, by: 'agent', k: 'reply', text: reply })
       }
-      signals.toolCalls++
-      const step: CallStep = { at, k: 'call', id: block.id, tool: block.name ?? 'unknown' }
-      timeline.push(step)
-      acc.pendingCalls.set(block.id, step)
-      const input = block.input
-      if (input?.command !== undefined) {
-        if (isTestCommand(input.command)) step.test = true
-        if (isCommitCommand(input.command)) step.commit = true
-        if (isPushCommand(input.command)) step.push = true
-      }
-      classify(step, typeof input?.command === 'string' ? input.command : undefined)
-      const file = input?.file_path ?? input?.notebook_path
-      if (!input || !file) continue
-      step.paths = [file]
-      const edits = input.edits ?? [{ old_string: input.old_string, new_string: input.new_string ?? input.content }]
-      for (const { old_string, new_string } of edits) {
-        if (old_string !== undefined && acc.rework.isRework(old_string, file)) {
-          signals.rework++
-          step.rework = true
+      if (l.type === 'system' && l.subtype === 'compact_boundary') events.push({ at, by: 'system', k: 'compact' })
+
+      const typed = claudeTyped(l)
+      if (isInterrupt(typed?.text)) {
+        if (!afterDecline) events.push({ at, by: 'you', k: 'interrupt' })
+      } else if (typed?.shell) events.push({ at, by: 'you', k: 'shell' })
+      else if (typed) events.push({ at, by: 'you', k: 'prompt', origin: l.type === 'attachment' ? 'queued' : 'typed', text: typed.text })
+      if (typed || l.type === 'assistant') afterDecline = false
+
+      if (!l.isSidechain) {
+        for (const b of blocks(l)) {
+          if (b.type === 'tool_use') {
+            if (!b.id || calls.has(b.id)) continue
+            calls.add(b.id)
+            if (b.name && isAskTool(b.name)) {
+              asks.add(b.id)
+              events.push({ at, by: 'agent', k: 'ask', call: b.id })
+              continue
+            }
+            const input = b.input ?? {}
+            const command = typeof input.command === 'string' ? input.command : undefined
+            const file = input.file_path ?? input.notebook_path
+            events.push(callDraft(at, b.id, b.name ?? 'unknown', command, file ? [file] : undefined))
+            const edits = file ? (input.edits ?? [{ old_string: input.old_string, new_string: input.new_string ?? input.content }]) : []
+            open.set(b.id, edits.map((e) => ({ file: file!, old: e.old_string, next: e.new_string })))
+          } else if (b.type === 'tool_result' && b.tool_use_id) {
+            const id = b.tool_use_id
+            const result = resultText(b)
+            const declined = b.is_error === true && result?.includes(DECLINED) === true
+            if (declined) afterDecline = true
+            if (asks.delete(id)) {
+              if (!declined) events.push({ at, by: 'you', k: 'answer', call: id, text: typeof b.content === 'string' ? b.content : blockText(b.content) })
+              continue
+            }
+            const edits = open.get(id)
+            if (!edits) continue
+            open.delete(id)
+            const status: Status = !b.is_error ? 'ok' : declined ? 'declined' : result?.startsWith('[Request interrupted') ? 'interrupted' : 'failed'
+            events.push({ at, by: 'agent', k: 'result', call: id, status, rework: status === 'ok' ? reworks(tracker, edits) : undefined })
+          }
         }
-        if (new_string !== undefined) acc.rework.wrote(new_string, file)
       }
-    } else if (block.type === 'tool_result') {
-      const step = block.tool_use_id ? acc.pendingCalls.get(block.tool_use_id) : undefined
-      if (block.tool_use_id) acc.pendingCalls.delete(block.tool_use_id)
-      const asked = block.tool_use_id !== undefined && acc.asks.delete(block.tool_use_id)
-      const declined = block.is_error && resultText(block)?.includes("doesn't want to proceed")
-      if (asked && !declined) {
-        timeline.push({ at, k: 'answer', call: block.tool_use_id! })
-        continue
+
+      // One response is logged across several lines that repeat the same usage, so count each message once.
+      const msg = l.message
+      if (l.type === 'assistant' && msg?.usage && !(msg.id && messages.has(msg.id))) {
+        if (msg.id) messages.add(msg.id)
+        if (msg.model && !msg.model.startsWith('<')) info.model = msg.model
+        const u = msg.usage
+        events.push({
+          at, by: 'agent', k: 'usage',
+          tokens: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 },
+        })
       }
-      if (!block.is_error) {
-        if (step) step.ok = true
-        continue
-      }
-      // A declined tool call comes back as an error carrying this message.
-      const result = resultText(block)
-      if (result?.includes("doesn't want to proceed")) {
-        signals.rejections++
-        acc.afterDecline = true
-        if (step) acc.declined.add(step)
-        timeline.push({ at, k: 'decline' })
-      } else if (result?.startsWith('[Request interrupted')) {
-        if (step) acc.interrupted.add(step)
-      } else {
-        signals.failedCalls++
-        if (step) step.ok = false
-      }
-    }
+      return { at, events }
+    },
+    label: (l: Line) => ({
+      what: l.isSidechain ? 'subagent'
+        : l.type === 'user' ? `user:${l.isCompactSummary ? 'compact-summary' : l.origin?.kind ?? (l.isMeta ? 'meta' : 'other')}`
+        : [l.type, l.subtype ?? l.attachment?.type ?? l.operation].filter(Boolean).join(':'),
+      tag: l.isSidechain ? undefined
+        : l.type === 'user' || (l.type === 'attachment' && l.attachment?.type !== 'hook_success') ? 'context'
+        : LOGS.has(l.type!) || l.type === 'attachment' || (l.type === 'system' && SYSTEM_LOGS.has(l.subtype!)) ? 'log'
+        : undefined,
+      by: l.isSidechain ? 'agent' : 'system',
+    }),
   }
 }

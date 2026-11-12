@@ -38,19 +38,18 @@ import assert from 'node:assert/strict'
 import * as parser from '@shortdiv/parseltongue'
 const raw = JSON.stringify({ type: 'session', version: 3, id: 'package-test', cwd: '/example', timestamp: '2026-01-01T00:00:00Z' })
 assert.equal(parser.normalizeSession(raw).id, 'pi:package-test')
-assert.equal(new parser.PiSessionParser().entries.size, 0)
-assert.equal(typeof parser.ingestClaudeLine, 'function')
-assert.equal(typeof parser.ingestCodexLine, 'function')
+assert.equal(parser.parseSession(raw).agent, 'pi')
+assert.equal(parser.reader('pi').entries.size, 0)
 for (const name of ['bill', 'AGENTS', 'SessionDataset', 'projectName']) assert.equal(name in parser, false)
 `)
   run(process.execPath, ['check.mjs'])
 
   // Compile a consumer with only ES libs: published declarations must not need @types/node.
   writeFileSync(join(temp, 'check.ts'), `
-import { normalizeSession, PiSessionParser, type NormalizedSession } from '@shortdiv/parseltongue'
+import { normalizeSession, reader, type NormalizedSession } from '@shortdiv/parseltongue'
 const session: NormalizedSession = normalizeSession('')
-const parser = new PiSessionParser()
-parser.ingestLine('')
+const parser = reader('pi')
+parser.read('')
 export { session, parser }
 `)
   writeFileSync(join(temp, 'tsconfig.json'), JSON.stringify({ compilerOptions: {

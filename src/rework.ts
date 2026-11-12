@@ -1,15 +1,3 @@
-import type { Signals } from './types.js'
-
-export const emptySignals = (): Signals => ({
-  prompts: 0,
-  interrupts: 0,
-  rejections: 0,
-  toolCalls: 0,
-  failedCalls: 0,
-  rework: 0,
-  compactions: 0,
-})
-
 /**
  * In-session thrash check: remembers lines the agent wrote per file, and flags an
  * edit as rework when most of what it replaces is the agent's own earlier output.
@@ -38,4 +26,21 @@ export class ReworkTracker {
     if (!lines.length || !mine) return false
     return lines.filter((l) => mine.has(l)).length / lines.length >= 0.5
   }
+}
+
+/** What one edit replaced and wrote in a file. */
+export interface Edit {
+  file: string
+  old?: string
+  next?: string
+}
+
+/** Whether a successful call's edits rework the agent's own lines; then remembers what they wrote. */
+export function reworks(tracker: ReworkTracker, edits: Edit[]): true | undefined {
+  let rework = false
+  for (const { file, old, next } of edits) {
+    if (old && tracker.isRework(old, file)) rework = true
+    if (next) tracker.wrote(next, file)
+  }
+  return rework || undefined
 }

@@ -1,5 +1,3 @@
-import type { CallStep } from './timeline.js'
-
 /**
  * What a call did. discover is finding things out without reading a known file:
  * searching, listing, planning, looking up tools and skills. A shell call gets its kind from its command (shellKind), since
@@ -58,23 +56,6 @@ export function toolOf(name: string): Tool {
 }
 
 export const kindOf = (name: string): Kind => KINDS[toolOf(name)]
-
-/** A step's kind, falling back to its tool's name for steps parsed before kinds existed. */
-export const callKind = (s: CallStep): Kind => s.kind ?? kindOf(s.tool)
-
-/**
- * Sets a call's kind and, for a shell call, the files its command read or wrote. Only a
- * Shell tool's command counts: other tools, MCP ones among them, can take a `command` argument.
- */
-export function classify(step: CallStep, command?: string) {
-  if (command === undefined || toolOf(step.tool) !== 'Shell') {
-    step.kind = kindOf(step.tool)
-    return
-  }
-  const { kind, paths } = shellKind(command)
-  step.kind = kind
-  if (paths.length && !step.paths) step.paths = paths
-}
 
 export interface ShellWork { kind: Kind; paths: string[] }
 

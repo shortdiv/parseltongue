@@ -1,6 +1,6 @@
+import type { SessionEvent } from './events.js'
 import type { PiEntry } from './pi.js'
 import { readSession, type Harness } from './session.js'
-import type { Step } from './timeline.js'
 
 export const agentName = (agent: Harness | 'unknown') => ({ claude: 'Claude Code', codex: 'Codex', pi: 'Pi', unknown: 'Unknown' })[agent]
 
@@ -11,7 +11,7 @@ export interface Turn {
 }
 
 /**
- * The older whole-session shape that training and rating tools read: steps, plus
+ * The whole-session shape that training and rating tools read: events, plus
  * turns with text. Built from the same reader as parseSession.
  */
 export interface NormalizedSession {
@@ -21,7 +21,7 @@ export interface NormalizedSession {
   project: string
   /** The folder the session ran in, for reading its git history. */
   cwd?: string
-  steps: Step[]
+  events: SessionEvent[]
   turns: Turn[]
   parentSession?: string
   entryTree?: PiEntry[]
@@ -32,7 +32,7 @@ const basename = (path: string) => path.replace(/\/$/, '').split('/').pop() || p
 
 /** Detects the harness from the log's content, as parseSession does; `file` only names the session. */
 export function normalizeSession(raw: string, file = ''): NormalizedSession {
-  const { session, text, acc, pi } = readSession(raw)
+  const { session, text, pi } = readSession(raw)
   const turns: Turn[] = []
   for (const e of session.events) {
     const words = text.get(e.id)
@@ -46,7 +46,7 @@ export function normalizeSession(raw: string, file = ''): NormalizedSession {
     agent: session.agent,
     project: session.cwd ? basename(session.cwd) : '?',
     cwd: session.cwd,
-    steps: acc.timeline,
+    events: session.events,
     turns,
     parentSession: pi?.metadata.parentSession,
     entryTree: pi && [...pi.entries.values()],

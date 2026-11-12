@@ -1,0 +1,20 @@
+cwd /work/app
++0s    prompt
++10s   call Read read read src/fetch.ts
++20s   result ok
++30s   call Shell bash read src/http.ts
++40s   result ok
++50s   call Shell bash discover
++60s   result ok
++70s   call Search grep discover
++80s   result ok
++90s   call Edit edit edit src/fetch.ts
++100s  result ok
++110s  call Shell bash run test
++120s  result failed
++130s  call Write write edit src/retry.ts
++140s  result ok
++150s  call Shell bash run test
++160s  result ok
++170s  call Shell bash run commit push
++180s  result ok

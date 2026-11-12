@@ -1,26 +1,22 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
-  ingestClaudeLine,
-  ingestCodexLine,
-  ingestCursorBubble,
-  ingestOpencodeMessage,
-  ingestOpencodePart,
-  ingestZedThread,
+  cursorReader,
   isCommitCommand,
   isPushCommand,
   isTestCommand,
   kindOf,
-  toolOf,
   normalizeSession,
-  parsePiSession,
+  opencodeReader,
+  outcomes,
   parseSession,
-  PiSessionParser,
-  SessionAccumulator,
+  reader,
   shellKind,
+  toolOf,
   totalTokens,
-  type CallStep,
-  type Step,
+  zedReader,
+  type Harness,
+  type SessionEvent,
 } from '../src/index.js'
 
 /** Every agent's parser, then what they share. Synthetic data only. */
@@ -39,51 +35,37 @@ const result = (id: string, is_error = false, content = '') => ({
   message: { content: [{ type: 'tool_result', tool_use_id: id, is_error, content }] },
 })
 
-function run(lines: object[]) {
-  const acc = new SessionAccumulator()
-  for (const l of lines) ingestClaudeLine(acc, JSON.stringify(l))
-  return acc
+/** Reads lines with one agent's reader, as a live consumer would. */
+function read(agent: Harness, lines: (object | string)[]) {
+  const r = reader(agent, { text: true })
+  const events = lines.flatMap((l) => r.read(typeof l === 'string' ? l : JSON.stringify(l)))
+  return { events, calls: outcomes(events), text: r.text, info: r.info }
 }
 
-/** What the parser read: counts, plus the tests and commits in its timeline. */
-function read(acc: SessionAccumulator) {
-  const calls = acc.timeline.filter((s): s is CallStep => s.k === 'call')
-  const tests = calls.filter((c) => c.test)
-  return {
-    ...acc.signals,
-    tests: tests.length,
-    lastTestOk: tests.at(-1)?.ok,
-    commits: calls.filter((c) => c.commit && c.ok !== false).length,
-    lastCallOk: calls.at(-1)?.ok,
-    last: acc.timeline.at(-1)?.k,
-    declined: acc.timeline.some((s) => s.k === 'decline'),
-  }
-}
+/** Events as short labels: a call's tool name, a result's status and rework. */
+const label = (e: SessionEvent) =>
+  e.k === 'call' ? `call ${e.name}` : e.k === 'result' ? `result ${e.status}${e.rework ? ' rework' : ''}` : e.k === 'system' ? `system ${e.what}` : e.k
 
-/** The files each call touched, in order. */
-const paths = (acc: SessionAccumulator) =>
-  acc.timeline.flatMap((s) => (s.k === 'call' && s.paths ? [s.paths] : []))
+const only = <K extends SessionEvent['k']>(events: SessionEvent[], k: K) => events.filter((e): e is Extract<SessionEvent, { k: K }> => e.k === k)
 
 describe('claude code', () => {
   it('reads a session that ends badly', () => {
-    const s = read(
-      run([
-        prompt('fix the login bug'),
-        call('a', 'Bash', { command: 'npx vitest run' }),
-        result('a', true, 'FAIL'),
-        prompt('it still doesnt work wtf'),
-        call('b', 'Bash', { command: 'rm -rf dist' }),
-        result('b', true, "The user doesn't want to proceed with this tool use."),
-        { type: 'user', timestamp: at(), message: { content: '[Request interrupted by user for tool use]' } },
-      ]),
-    )
-    // A declined call has no outcome of its own; the decline is its own step.
-    expect(s).toMatchObject({ tests: 1, lastTestOk: false, rejections: 1, interrupts: 0, lastCallOk: undefined })
-    expect(s.declined).toBe(true)
+    const { events } = read('claude', [
+      prompt('fix the login bug'),
+      call('a', 'Bash', { command: 'npx vitest run' }),
+      result('a', true, 'FAIL'),
+      prompt('it still doesnt work wtf'),
+      call('b', 'Bash', { command: 'rm -rf dist' }),
+      result('b', true, "The user doesn't want to proceed with this tool use."),
+      // Logged right after a decline; part of it, not an interrupt of its own.
+      { type: 'user', timestamp: at(), message: { content: '[Request interrupted by user for tool use]' } },
+    ])
+    expect(events.map(label)).toEqual(['prompt', 'call Bash', 'result failed', 'prompt', 'call Bash', 'result declined', 'system user:other'])
+    expect(only(events, 'call')[0]).toMatchObject({ test: true })
   })
 
   it('records what each call did and the files it touched, from its command only for a shell tool', () => {
-    const acc = run([
+    const { events } = read('claude', [
       call('a', 'Read', { file_path: 'x.ts' }),
       call('b', 'Edit', { file_path: 'x.ts', old_string: 'a', new_string: 'b' }),
       call('c', 'NotebookEdit', { notebook_path: 'n.ipynb' }),
@@ -91,7 +73,7 @@ describe('claude code', () => {
       call('e', 'Bash', { command: 'cat src/a.ts' }),
       call('f', 'mcp__notion__update_page', { command: 'update_content' }),
     ])
-    expect(acc.timeline.map((c) => c.k === 'call' && [c.kind, c.paths])).toEqual([
+    expect(only(events, 'call').map((c) => [c.kind, c.paths])).toEqual([
       ['read', ['x.ts']], ['edit', ['x.ts']], ['edit', ['n.ipynb']], ['discover', undefined], ['read', ['src/a.ts']], ['mcp', undefined],
     ])
   })
@@ -127,8 +109,7 @@ describe('codex', () => {
     cx('event_msg', { type: 'item_completed', item: { id: `item${n++}`, type: 'CommandExecution', status, command: ['/bin/zsh', '-lc', cmd] } })
 
   it('reads how a Codex session ended', () => {
-    const acc = new SessionAccumulator()
-    for (const l of [
+    const { events, calls } = read('codex', [
       prompt('<environment_context>injected</environment_context>'),
       prompt('make the tests pass'),
       command('pnpm test', 'failed'),
@@ -137,17 +118,18 @@ describe('codex', () => {
       command('git commit -am fix', 'completed'),
       prompt('perfect, thanks'),
     ])
-      ingestCodexLine(acc, JSON.stringify(l))
-    expect(read(acc)).toMatchObject({ prompts: 2, toolCalls: 4, failedCalls: 1, tests: 2, lastTestOk: true, commits: 1, lastCallOk: true })
+    expect(events.filter((e) => e.k === 'prompt')).toHaveLength(2)
+    expect(only(events, 'call').map((c) => [c.name, c.test ?? c.commit, calls[c.call]])).toEqual([
+      ['CommandExecution', true, 'failed'], ['FileChange', undefined, 'ok'], ['CommandExecution', true, 'ok'], ['CommandExecution', true, 'ok'],
+    ])
   })
 
-  it('reads an older log from call records and output headers', () => {
+  it('reads an older log from call records and output headers, waiting on running commands', () => {
     const call = (call_id: string, name: string, args: object) =>
       cx('response_item', { type: 'function_call', call_id, name, arguments: JSON.stringify(args) })
     const output = (call_id: string, output: string) => cx('response_item', { type: 'function_call_output', call_id, output })
     const patch = (call_id: string, input: string) => cx('response_item', { type: 'custom_tool_call', call_id, name: 'apply_patch', input })
-    const acc = new SessionAccumulator()
-    for (const l of [
+    const { events } = read('codex', [
       prompt('fix the parser'),
       call('a', 'exec_command', { cmd: 'pnpm test' }),
       output('a', 'Chunk ID: 1\nWall time: 2.0 seconds\nProcess exited with code 1\nOutput:\nFAIL'),
@@ -160,28 +142,27 @@ describe('codex', () => {
       call('e', 'write_stdin', { session_id: 7 }),
       output('e', 'Wall time: 3.0 seconds\nProcess exited with code 0\nOutput:\nok'),
     ])
-      ingestCodexLine(acc, JSON.stringify(l))
-    expect(read(acc)).toMatchObject({ toolCalls: 4, failedCalls: 1, rejections: 1, rework: 1, tests: 2, lastTestOk: true })
+    // A rejected patch isn't rework; d's result waits for the poll that saw it exit.
+    expect(events.map(label)).toEqual([
+      'prompt', 'call exec_command', 'result failed', 'call apply_patch', 'result ok', 'call apply_patch', 'result declined',
+      'call exec_command', 'system response_item:function_call_output', 'system response_item:function_call', 'result ok',
+    ])
+    expect(only(events, 'result').at(-1)).toMatchObject({ call: 'd' })
   })
 
-  it('reads image views and tool searches as calls', () => {
-    const acc = new SessionAccumulator()
-    for (const l of [
+  it('reads image views and tool searches as calls that settle on their own line', () => {
+    const { events } = read('codex', [
       cx('event_msg', { type: 'item_completed', item: { id: 'img1', type: 'ImageView', path: '/repo/shot.png' } }),
       cx('response_item', { type: 'tool_search_call', call_id: 'ts1', status: 'completed', execution: 'client', arguments: {} }),
     ])
-      ingestCodexLine(acc, JSON.stringify(l))
-    const calls = acc.timeline.filter((s): s is CallStep => s.k === 'call')
-    expect(calls.map((c) => [c.tool, c.kind, c.ok, c.paths])).toEqual([
-      ['ImageView', 'read', true, ['/repo/shot.png']],
-      ['tool_search', 'discover', true, undefined],
+    expect(events.map((e) => (e.k === 'call' ? [e.tool, e.kind, e.paths] : label(e)))).toEqual([
+      ['Read', 'read', ['/repo/shot.png']], 'result ok', ['Skill', 'discover', undefined], 'result ok',
     ])
   })
 
   it('counts each web search once, however Codex logged it', () => {
-    const acc = new SessionAccumulator()
     const item = (id: string, extra: object) => cx('event_msg', { type: 'item_completed', item: { id, ...extra } })
-    for (const l of [
+    const { events } = read('codex', [
       cx('response_item', { type: 'web_search_call', status: 'completed', action: { type: 'search' } }),
       cx('response_item', { type: 'web_search_call', id: 'ws1', status: 'completed', action: { type: 'open_page' } }),
       item('ws1', { type: 'WebSearch', action: { type: 'open_page' } }),
@@ -189,23 +170,16 @@ describe('codex', () => {
       item('ws2', { type: 'WebSearch', action: { type: 'find_in_page' } }),
       item('ext', { type: 'Extension', kind: 'other.thing' }),
     ])
-      ingestCodexLine(acc, JSON.stringify(l))
-    const calls = acc.timeline.filter((s): s is CallStep => s.k === 'call')
-    expect(calls.map((c) => [c.tool, c.kind, c.ok])).toEqual([
-      ['web_search', 'web', true],
-      ['web_search', 'web', true],
-      ['web_search', 'web', true],
-    ])
+    expect(only(events, 'call').map((c) => [c.tool, c.kind])).toEqual([['WebSearch', 'web'], ['WebSearch', 'web'], ['WebSearch', 'web']])
+    expect(only(events, 'result').map((r) => r.status)).toEqual(['ok', 'ok', 'ok'])
   })
 
   it('labels a question to you and your answer', () => {
-    const acc = new SessionAccumulator()
-    for (const l of [
+    const { events } = read('codex', [
       cx('response_item', { type: 'function_call', call_id: 'q', name: 'resolve_open_questions', arguments: '{}' }),
       cx('response_item', { type: 'function_call_output', call_id: 'q', output: 'answered' }),
     ])
-      ingestCodexLine(acc, JSON.stringify(l))
-    expect(acc.timeline.map((s) => s.k)).toEqual(['ask', 'answer'])
+    expect(events.map(label)).toEqual(['ask', 'answer'])
   })
 
   it('records a code-mode script as a call, with the calls it ran within it', () => {
@@ -217,9 +191,10 @@ describe('codex', () => {
     ].map((l) => JSON.stringify(l)).join('\n')
     const calls = parseSession(raw).events.filter((e) => e.k === 'call' || e.k === 'result')
     expect(calls).toMatchObject([
-      { k: 'call', call: 'cell', tool: 'Code', name: 'exec', status: 'failed' },
-      { k: 'call', call: 'cmd', tool: 'Shell', name: 'CommandExecution', kind: 'run', test: true, status: 'failed', within: 'cell' },
-      { k: 'result', call: 'cell' },
+      { k: 'call', call: 'cell', tool: 'Code', name: 'exec' },
+      { k: 'call', call: 'cmd', tool: 'Shell', name: 'CommandExecution', kind: 'run', test: true, within: 'cell' },
+      { k: 'result', call: 'cmd', status: 'failed' },
+      { k: 'result', call: 'cell', status: 'failed' },
     ])
   })
 
@@ -241,10 +216,9 @@ describe('codex', () => {
   })
 
   it('records every file a patch touched', () => {
-    const acc = new SessionAccumulator()
     const patch = '*** Begin Patch\n*** Update File: x.ts\n@@\n-a\n+b\n*** Add File: y.ts\n+c\n*** Update File: x.ts\n@@\n-d\n+e\n*** End Patch'
-    ingestCodexLine(acc, JSON.stringify(cx('response_item', { type: 'custom_tool_call', call_id: 'p', name: 'apply_patch', input: patch })))
-    expect(paths(acc)).toEqual([['x.ts', 'y.ts']])
+    const { events } = read('codex', [cx('response_item', { type: 'custom_tool_call', call_id: 'p', name: 'apply_patch', input: patch })])
+    expect(only(events, 'call')[0]!.paths).toEqual(['x.ts', 'y.ts'])
   })
 })
 
@@ -277,7 +251,11 @@ describe('pi', () => {
     const message = (role: string, fields: object = {}, id?: string, parentId = parent) => entry('message', { message: { role, timestamp: clock, ...fields } }, id, parentId)
     const call = (id: string, name: string, args: object) => message('assistant', { content: [{ type: 'toolCall', id, name, arguments: args }] })
     const result = (id: string, isError = false, content = 'ok') => message('toolResult', { toolCallId: id, isError, content: [{ type: 'text', text: content }] })
-    const parse = () => parsePiSession(rows.map(r => JSON.stringify(r)))
+    const parse = () => {
+      const r = reader('pi', { text: true })
+      const events = rows.flatMap((row) => r.read(JSON.stringify(row)))
+      return { r, events, calls: outcomes(events) }
+    }
     return { rows, entry, message, call, result, parse }
   }
 
@@ -296,19 +274,15 @@ describe('pi', () => {
     s.result('commit')
     s.message('assistant', { model: 'physical-model', content: [], usage })
     s.message('user', { content: 'perfect, thanks' })
-    const p = s.parse()
-    const a = p.accumulator
-    expect(p.metadata).toMatchObject({ id: 'session-id', formatVersion: 3, parentSession: '/parent.jsonl', name: 'Implement retry' })
-    expect(a).toMatchObject({ projectPath: '/work/project', model: 'physical-model' })
-    expect(a.signals).toMatchObject({ prompts: 2, toolCalls: 3, failedCalls: 1 })
-    expect(a.timeline.filter(s => s.k === 'call')).toMatchObject([
-      { test: true, ok: false }, { test: true, ok: true }, { commit: true, ok: true },
-    ])
-    expect(a.usage.map(u => u.tokens)).toEqual([{ input: 10, output: 20, cacheRead: 30, cacheWrite: 40 }])
-    expect(p.costUsd).toBeCloseTo(0.01)
+    const { r, events, calls } = s.parse()
+    expect(r.metadata).toMatchObject({ id: 'session-id', formatVersion: 3, parentSession: '/parent.jsonl', name: 'Implement retry' })
+    expect(r.info).toMatchObject({ id: 'session-id', cwd: '/work/project', model: 'physical-model', parent: { session: '/parent.jsonl', via: 'fork' } })
+    expect(only(events, 'prompt')).toHaveLength(2)
+    expect(only(events, 'call').map((c) => [c.test ?? c.commit, calls[c.call]])).toEqual([[true, 'failed'], [true, 'ok'], [true, 'ok']])
+    expect(only(events, 'usage')).toMatchObject([{ tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40 }, cost: 0.01 }])
   })
 
-  it('counts every branch, but follows only the kept path', () => {
+  it('reads every branch, and follows the kept one', () => {
     const s = session()
     const fork = s.message('user', { content: 'research an approach' })
     s.call('failed-test', 'bash', { command: 'pnpm test' })
@@ -318,32 +292,27 @@ describe('pi', () => {
     s.message('user', { content: 'use the other approach' })
     const kept = s.message('assistant', { content: [], usage })
     s.entry('compaction', { firstKeptEntryId: kept, tokensBefore: 50000, summary: 'not a new prompt', usage })
-    const p = s.parse()
-    expect(p.accumulator.signals).toMatchObject({ prompts: 2, toolCalls: 1, failedCalls: 1, compactions: 1 })
-    expect(p.accumulator.usage.reduce((n, u) => n + totalTokens(u.tokens), 0)).toBe(300)
-    const path = p.getPath()
-    expect(path.complete).toBe(true)
-    expect(path.entries.map(e => e.id)).toContain(summary)
-    expect(path.entries.map(e => e.id)).not.toContain(abandoned)
-    expect(p.getTimeline().some(s => s.k === 'call')).toBe(false)
-    expect(p.getTimeline(abandoned).some(s => s.k === 'call')).toBe(true)
+    const { r, events } = s.parse()
+    expect(events.map(label).filter((l) => !l.startsWith('system'))).toEqual(['prompt', 'call bash', 'result failed', 'reply', 'usage', 'prompt', 'usage', 'compact', 'usage'])
+    expect(only(events, 'usage').reduce((n, u) => n + totalTokens(u.tokens), 0)).toBe(300)
+    const onPath = (leaf?: string) => new Set(r.getPath(leaf).entries.flatMap((e) => e.events))
+    expect(r.getPath().complete).toBe(true)
+    expect(r.getPath().entries.map((e) => e.id)).toContain(summary)
+    expect(events.filter((e) => onPath().has(e.id)).some((e) => e.k === 'call')).toBe(false)
+    expect(events.filter((e) => onPath(abandoned).has(e.id)).some((e) => e.k === 'call')).toBe(true)
   })
 
-  it('reads every edit shape and the files calls touched; rework only follows a successful write', () => {
+  it('reads every edit shape and the files calls touched', () => {
     const s = session()
     s.call('r', 'read', { path: 'a.ts' })
     s.call('g', 'grep', { pattern: 'x', path: 'src' })
-    s.call('bad-write', 'write', { path: 'a.ts', content: 'never actually written' })
-    s.result('bad-write', true)
-    s.call('edit0', 'edit', { path: 'a.ts', oldText: 'never actually written', newText: 'first successful line' })
-    s.result('edit0')
-    s.call('edit1', 'edit', { path: 'a.ts', old_string: 'first successful line', new_string: 'second successful line' })
-    s.result('edit1')
-    s.call('edit2', 'edit', { path: 'a.ts', edits: [{ oldText: 'second successful line', newText: 'third successful line' }] })
-    s.result('edit2')
-    const a = s.parse().accumulator
-    expect(a.signals).toMatchObject({ rework: 2, failedCalls: 1 })
-    expect(a.timeline.flatMap(t => (t.k === 'call' ? [t.paths] : []))).toEqual([['a.ts'], undefined, ['a.ts'], ['a.ts'], ['a.ts'], ['a.ts']])
+    s.call('w', 'write', { path: 'a.ts', content: 'x' })
+    s.call('e1', 'edit', { path: 'a.ts', oldText: 'a', newText: 'b' })
+    s.call('e2', 'edit', { path: 'a.ts', old_string: 'a', new_string: 'b' })
+    s.call('e3', 'edit', { path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }] })
+    expect(only(s.parse().events, 'call').map((c) => [c.kind, c.paths])).toEqual([
+      ['read', ['a.ts']], ['discover', undefined], ['edit', ['a.ts']], ['edit', ['a.ts']], ['edit', ['a.ts']], ['edit', ['a.ts']],
+    ])
   })
 
   it('separates aborts, failures, unknown results, your shell and injected messages', () => {
@@ -358,89 +327,132 @@ describe('pi', () => {
     s.call('missing', 'read', { path: 'a.ts' })
     s.result('orphan', true)
     s.message('assistant', { stopReason: 'error', errorMessage: 'provider unavailable', content: [] })
-    s.message('toolResult', { toolCallId: 'missing', isError: false, usage })
-    const p = s.parse()
-    expect(p.accumulator.signals).toMatchObject({ prompts: 1, interrupts: 1, rejections: 0, failedCalls: 0, toolCalls: 2 })
-    const calls = p.accumulator.timeline.filter(s => s.k === 'call')
-    expect(calls).toMatchObject([{ tool: 'bash' }, { tool: 'read', ok: true }])
-    expect(calls[0]).not.toHaveProperty('ok')
-    expect(p.diagnostics.orphanResults).toBe(1)
-    expect(JSON.stringify(p)).not.toMatch(/provider unavailable|not retained/)
+    s.message('toolResult', { toolCallId: 'missing', usage })
+    const { r, events } = s.parse()
+    expect(events.map(label).filter((l) => !l.startsWith('system'))).toEqual([
+      'shell', 'prompt', 'call bash', 'result interrupted', 'interrupt', 'usage', 'call read', 'result unknown', 'usage',
+    ])
+    expect(r.diagnostics.orphanResults).toBe(1)
+    expect(JSON.stringify([events, [...r.text]])).not.toMatch(/provider unavailable|not retained/)
   })
 
   it('tolerates duplicates, damaged lines, older linear logs and broken trees', () => {
     const s = session()
     s.message('user', { content: 'hello' })
     s.call('unmatched', 'bash', { command: 'pnpm test' })
-    const p = s.parse()
-    p.ingestLine(JSON.stringify(s.rows.at(-1)))
-    p.ingestLine('{truncated')
-    for (const v of [null, [], 1, { type: 'message' }, { type: 'message', id: 'broken', timestamp: 'invalid' }]) p.ingestLine(JSON.stringify(v))
-    expect(p.accumulator.signals.toolCalls).toBe(1)
-    expect(p.accumulator.timeline.at(-1)).not.toHaveProperty('ok')
-    expect(p.diagnostics).toMatchObject({ duplicateEntries: 1, malformedLines: 1, ignoredLines: 5 })
+    const { r, events } = s.parse()
+    const more = [JSON.stringify(s.rows.at(-1)), '{truncated', ...[null, [], 1, { type: 'message' }, { type: 'message', id: 'broken', timestamp: 'invalid' }].map((v) => JSON.stringify(v))]
+    expect(more.flatMap((l) => r.read(l))).toEqual([])
+    expect(outcomes(events)).toEqual({ unmatched: 'unknown' })
+    expect(r.diagnostics).toMatchObject({ duplicateEntries: 1, malformedLines: 1, ignoredLines: 5 })
 
-    const linear = parsePiSession([
-      JSON.stringify({ type: 'session', timestamp: new Date(start).toISOString() }),
-      JSON.stringify({ type: 'message', timestamp: new Date(start + 1000).toISOString(), message: { role: 'user', content: 'hello' } }),
-      JSON.stringify({ type: 'message', timestamp: new Date(start + 2000).toISOString(), message: { role: 'assistant', content: [] } }),
-    ])
+    const linear = reader('pi')
+    for (const l of [
+      { type: 'session', timestamp: new Date(start).toISOString() },
+      { type: 'message', timestamp: new Date(start + 1000).toISOString(), message: { role: 'user', content: 'hello' } },
+      { type: 'message', timestamp: new Date(start + 2000).toISOString(), message: { role: 'assistant', content: [] } },
+    ]) linear.read(JSON.stringify(l))
     expect(linear.getPath()).toMatchObject({ complete: true, entries: { length: 2 } })
-    const broken = new PiSessionParser()
-    broken.ingestLine(JSON.stringify({ type: 'custom', id: 'a', parentId: 'missing', timestamp: new Date(start).toISOString() }))
+
+    const broken = reader('pi')
+    broken.read(JSON.stringify({ type: 'custom', id: 'a', parentId: 'missing', timestamp: new Date(start).toISOString() }))
     expect(broken.getPath().complete).toBe(false)
-    expect(() => broken.getTimeline()).toThrow('Incomplete')
+    expect(broken.warnings()).toContain('Incomplete or cyclic ancestry; every branch retained')
     // The missing parent arrives, pointing back at its child: a cycle, not an endless walk.
-    broken.ingestLine(JSON.stringify({ type: 'custom', id: 'missing', parentId: 'a', timestamp: new Date(start).toISOString() }))
+    broken.read(JSON.stringify({ type: 'custom', id: 'missing', parentId: 'a', timestamp: new Date(start).toISOString() }))
     expect(broken.getPath().complete).toBe(false)
   })
 
-  it('records activity for messages, not metadata, at the entry time, not the message start time', () => {
-    const p = parsePiSession([
-      JSON.stringify({ type: 'message', id: 'a', parentId: null, timestamp: new Date(start).toISOString(), message: { role: 'user', content: 'hello' } }),
-      JSON.stringify({ type: 'label', id: 'b', parentId: 'a', timestamp: new Date(start + 240_000).toISOString() }),
-      JSON.stringify({ type: 'message', id: 'c', parentId: 'b', timestamp: new Date(start + 480_000).toISOString(), message: { role: 'assistant', timestamp: start, content: [], usage } }),
+  it('times events by the entry, not the message start', () => {
+    const r = reader('pi')
+    const events = [
+      { type: 'message', id: 'a', parentId: null, timestamp: new Date(start).toISOString(), message: { role: 'user', content: 'hello' } },
+      { type: 'label', id: 'b', parentId: 'a', timestamp: new Date(start + 240_000).toISOString() },
+      { type: 'message', id: 'c', parentId: 'b', timestamp: new Date(start + 480_000).toISOString(), message: { role: 'assistant', timestamp: start, content: [], usage } },
+    ].flatMap((l) => r.read(JSON.stringify(l)))
+    expect(events.map((e) => [e.at - start, e.by, label(e)])).toEqual([[0, 'you', 'prompt'], [240_000, 'system', 'system label'], [480_000, 'agent', 'usage']])
+  })
+})
+
+describe('rework', () => {
+  // The same story in each agent's log: the agent writes a line, an edit of it fails,
+  // then an edit of it succeeds. Only the successful one is rework.
+  const line = 'const retries = computeRetries(config)'
+  it('claude code', () => {
+    const { events } = read('claude', [
+      call('w', 'Write', { file_path: 'a.ts', content: line }), result('w'),
+      call('x', 'Edit', { file_path: 'a.ts', old_string: line, new_string: 'x' }), result('x', true, 'String not found'),
+      call('y', 'Edit', { file_path: 'a.ts', old_string: line, new_string: 'y' }), result('y'),
     ])
-    expect(p.accumulator.activity).toEqual([{ at: start, by: 'you' }, { at: start + 480_000, by: 'agent' }])
+    expect(only(events, 'result').map(label)).toEqual(['result ok', 'result failed', 'result ok rework'])
+  })
+  it('codex', () => {
+    const cx = (type: string, payload: object) => ({ type, timestamp: at(), payload })
+    const patch = (id: string, body: string) => cx('response_item', { type: 'custom_tool_call', call_id: id, name: 'apply_patch', input: `*** Begin Patch\n*** Update File: a.ts\n@@\n${body}\n*** End Patch` })
+    const done = (id: string, output: string) => cx('response_item', { type: 'custom_tool_call_output', call_id: id, output })
+    const { events } = read('codex', [
+      patch('w', `+${line}`), done('w', 'Exit code: 0'),
+      patch('x', `-${line}\n+x`), done('x', 'apply_patch verification failed'),
+      patch('y', `-${line}\n+y`), done('y', 'Exit code: 0'),
+    ])
+    expect(only(events, 'result').map(label)).toEqual(['result ok', 'result failed', 'result ok rework'])
+  })
+  it('pi', () => {
+    let clock = Date.parse('2026-11-02T14:00:00Z')
+    const msg = (message: object) => ({ type: 'message', id: `m${clock}`, parentId: null, timestamp: new Date((clock += 1000)).toISOString(), message })
+    const call = (id: string, name: string, args: object) => msg({ role: 'assistant', content: [{ type: 'toolCall', id, name, arguments: args }] })
+    const done = (id: string, isError = false) => msg({ role: 'toolResult', toolCallId: id, isError, content: [] })
+    const { events } = read('pi', [
+      { type: 'session', version: 1, id: 's', timestamp: new Date(clock).toISOString() },
+      call('w', 'write', { path: 'a.ts', content: line }), done('w'),
+      call('x', 'edit', { path: 'a.ts', oldText: line, newText: 'x' }), done('x', true),
+      call('y', 'edit', { path: 'a.ts', oldText: line, newText: 'y' }), done('y'),
+    ])
+    expect(only(events, 'result').map(label)).toEqual(['result ok', 'result failed', 'result ok rework'])
   })
 })
 
 describe('opencode', () => {
-  it('records your prompts, the reply at its completion time, its tokens and tool failures', () => {
-    const acc = new SessionAccumulator()
-    ingestOpencodeMessage(acc, { role: 'user', created: 1_000, directory: '/work/app' })
-    ingestOpencodeMessage(acc, { role: 'assistant', created: 2_000, completed: 9_000, model: 'm', tokens: { input: 5, output: 3, reasoning: 2, cacheRead: 7 } })
-    ingestOpencodeMessage(acc, { role: 'assistant', created: 10_000, error: 'MessageAbortedError' })
-    ingestOpencodePart(acc, { type: 'tool', status: 'completed' })
-    ingestOpencodePart(acc, { type: 'tool', status: 'error' })
-    ingestOpencodePart(acc, { type: 'text' })
-    expect(acc.activity).toEqual([{ at: 1_000, by: 'you' }, { at: 9_000, by: 'agent' }, { at: 10_000, by: 'agent' }])
-    expect(acc.usage[0]).toEqual({ at: 9_000, tokens: { input: 5, output: 5, cacheRead: 7, cacheWrite: 0 } })
-    expect(acc.timeline.map((s) => s.k)).toEqual(['prompt', 'interrupt'])
-    expect(acc.signals).toMatchObject({ prompts: 1, interrupts: 1, toolCalls: 2, failedCalls: 1 })
-    expect(acc).toMatchObject({ projectPath: '/work/app', model: 'm' })
+  it('reads your prompts, the reply at its completion time, its tokens, and tool calls with their results', () => {
+    const r = opencodeReader()
+    const events = [
+      ...r.message({ role: 'user', created: 1_000, directory: '/work/app' }),
+      ...r.message({ role: 'assistant', created: 2_000, completed: 9_000, model: 'm', tokens: { input: 5, output: 3, reasoning: 2, cacheRead: 7 } }),
+      ...r.message({ role: 'assistant', created: 10_000, error: 'MessageAbortedError' }),
+      ...r.part({ type: 'tool', callId: 't1', tool: 'bash', status: 'completed', start: 3_000, end: 4_000 }),
+      ...r.part({ type: 'tool', callId: 't2', tool: 'read', status: 'error', start: 5_000, end: 6_000 }),
+      ...r.part({ type: 'text' }),
+    ]
+    expect(events.map((e) => [e.at, e.by, label(e)])).toEqual([
+      [1_000, 'you', 'prompt'], [9_000, 'agent', 'reply'], [9_000, 'agent', 'usage'], [10_000, 'agent', 'reply'], [10_000, 'you', 'interrupt'], [10_000, 'agent', 'usage'],
+      [3_000, 'agent', 'call bash'], [4_000, 'agent', 'result ok'], [5_000, 'agent', 'call read'], [6_000, 'agent', 'result failed'],
+    ])
+    expect(only(events, 'usage')[0]!.tokens).toEqual({ input: 5, output: 5, cacheRead: 7, cacheWrite: 0 })
+    expect(r.info).toEqual({ cwd: '/work/app', model: 'm' })
   })
 })
 
 describe('cursor', () => {
-  it('records you (type 1) and the agent, and tokens only when Cursor stored them', () => {
-    const acc = new SessionAccumulator()
-    ingestCursorBubble(acc, { createdAt: '2026-01-01T00:00:00Z', type: 1, model: 'default' })
-    ingestCursorBubble(acc, { createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens: 4, outputTokens: 6, model: 'gpt' })
-    expect(acc.activity.map((e) => e.by)).toEqual(['you', 'agent'])
-    expect(acc.usage).toHaveLength(1)
-    expect(acc.timeline.map((s) => s.k)).toEqual(['prompt'])
-    expect(acc.model).toBe('gpt')
+  it('reads you (type 1) and the agent, and tokens only when Cursor stored them', () => {
+    const r = cursorReader()
+    const events = [
+      ...r.bubble({ createdAt: '2026-01-01T00:00:00Z', type: 1, model: 'default' }),
+      ...r.bubble({ createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens: 4, outputTokens: 6, model: 'gpt' }),
+    ]
+    expect(events.map((e) => [e.by, e.k])).toEqual([['you', 'prompt'], ['agent', 'reply'], ['agent', 'usage']])
+    expect(r.info.model).toBe('gpt')
   })
 })
 
 describe('zed', () => {
-  it('records each update as agent activity, in the first folder', () => {
-    const acc = new SessionAccumulator()
-    ingestZedThread(acc, { updatedAt: '2026-01-01T00:00:00Z', folders: '["/work/app","/work/lib"]' })
-    ingestZedThread(acc, { updatedAt: '2026-01-01T00:01:00Z', folders: '/other' })
-    expect(acc.activity.map((e) => e.by)).toEqual(['agent', 'agent'])
-    expect(acc.projectPath).toBe('/work/app')
+  it('reads each update as agent activity, in the first folder', () => {
+    const r = zedReader()
+    const events = [
+      ...r.thread({ updatedAt: '2026-01-01T00:00:00Z', folders: '["/work/app","/work/lib"]' }),
+      ...r.thread({ updatedAt: '2026-01-01T00:01:00Z', folders: '/other' }),
+    ]
+    expect(events.map((e) => [e.by, label(e)])).toEqual([['agent', 'system thread_updated'], ['agent', 'system thread_updated']])
+    expect(r.info.cwd).toBe('/work/app')
   })
 })
 
@@ -452,12 +464,12 @@ describe('synthetic fixtures', () => {
     ['pi', 'tools-and-bash'],
   ] as const
 
-  function line(s: Step, t0: number): string {
-    const head = `+${(s.at - t0) / 1000}s`.padEnd(6)
-    if (s.k !== 'call') return `${head} ${s.k}`
-    const ok = s.ok === undefined ? '?' : s.ok ? 'ok' : 'failed'
-    const flags = (['test', 'commit', 'push', 'rework'] as const).filter(f => s[f])
-    return [head, 'call', s.tool, s.kind, ok, ...flags, ...(s.paths ?? [])].join(' ')
+  function line(e: SessionEvent, t0: number): string {
+    const head = `+${(e.at - t0) / 1000}s`.padEnd(6)
+    if (e.k === 'call') return [head, 'call', e.tool, e.name, e.kind, ...(['test', 'commit', 'push'] as const).filter((f) => e[f]), ...(e.paths ?? [])].join(' ')
+    if (e.k === 'result') return [head, 'result', e.status, ...(e.rework ? ['rework'] : [])].join(' ')
+    if (e.k === 'system') return [head, 'system', e.what, ...(e.tag ? [e.tag] : [])].join(' ')
+    return `${head} ${e.k}`
   }
 
   for (const [harness, name] of cases) {
@@ -465,11 +477,10 @@ describe('synthetic fixtures', () => {
       const url = new URL(`./fixtures/${harness}/${name}.jsonl`, import.meta.url)
       const session = normalizeSession(readFileSync(url, 'utf8'), url.pathname)
       expect(session.agent).toBe(harness)
-      expect(session.steps.length).toBeGreaterThan(0)
       expect(session.turns.length).toBeGreaterThan(0)
-      const t0 = session.steps[0]!.at
-      const output = [`cwd ${session.cwd}`, ...session.steps.map(s => line(s, t0))].join('\n') + '\n'
-      await expect(output).toMatchFileSnapshot(url.pathname.replace(/\.jsonl$/, '.steps'))
+      const t0 = session.events[0]!.at
+      const output = [`cwd ${session.cwd}`, ...session.events.map((e) => line(e, t0))].join('\n') + '\n'
+      await expect(output).toMatchFileSnapshot(url.pathname.replace(/\.jsonl$/, '.events'))
     })
   }
 })

@@ -26,19 +26,20 @@ describe('parseSession', () => {
   it('gives one time-ordered list of labelled events', () => {
     const s = parseSession(RAW)
     expect(s).toMatchObject({ id: 's1', agent: 'claude', cwd: '/work/app' })
-    expect(s.events.map((e) => (e.k === 'call' ? `call ${e.kind} ${e.status}` : e.k === 'prompt' ? `prompt ${e.origin}` : e.k)))
+    expect(s.events.map((e) => (e.k === 'call' ? `call ${e.kind}` : e.k === 'result' ? `result ${e.status}` : e.k === 'prompt' ? `prompt ${e.origin}` : e.k)))
       .toEqual([
         'prompt typed',
-        'reply', 'call run failed', 'usage',
-        'result',
-        'call edit ok',
-        'result',
+        'reply', 'call run', 'usage',
+        'result failed',
+        'call edit',
+        'result ok',
         'ask', 'answer',
         'prompt queued',
         'system',
         'compact',
         'prompt typed',
       ])
+    expect(s.calls).toEqual({ c1: 'failed', c2: 'ok' })
     expect(s.events.map((e) => e.at)).toEqual([...s.events.map((e) => e.at)].sort((a, b) => a - b))
     expect(new Set(s.events.map((e) => e.id)).size).toBe(s.events.length)
   })
@@ -71,7 +72,7 @@ describe('parseSession', () => {
       ['{"hello":"world"}', 'Unrecognised format'],
       [gemini, 'Gemini CLI logs aren\'t parsed into events; the viewer API reads them'],
       [`${pi}\n${RAW.split('\n')[0]}`, 'Ambiguous format: looks like pi and Claude Code'],
-    ]) expect(parseSession(raw!)).toEqual({ id: '', agent: 'unknown', events: [], warnings: [warning] })
+    ]) expect(parseSession(raw!)).toEqual({ id: '', agent: 'unknown', events: [], calls: {}, warnings: [warning] })
   })
 
   it('skips lines that are damaged or not JSON objects', () => {

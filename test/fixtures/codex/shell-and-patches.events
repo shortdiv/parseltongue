@@ -1,0 +1,25 @@
+cwd /work/app
++0s    system session_meta log
++10s   prompt
++20s   call Shell exec_command read src/fetch.ts
++30s   result ok
++40s   call Shell exec_command discover
++50s   result ok
++60s   call Shell exec_command read src/http.ts
++70s   result ok
++80s   call Shell exec_command discover
++90s   result ok
++100s  call Patch apply_patch edit src/fetch.ts
++110s  result ok
++120s  call Shell exec_command run test
++130s  result failed
++140s  call Code exec run
++150s  call Shell CommandExecution read src/fetch.ts
++150s  result ok
++160s  call Shell CommandExecution run test
++160s  result ok
++170s  call Shell exec_command review
++180s  result ok
++190s  prompt
++200s  call Shell exec_command run commit push
++210s  result ok

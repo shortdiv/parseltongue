@@ -17,7 +17,7 @@ Run `pnpm install`, `pnpm typecheck`, `pnpm test`, and `pnpm check:package` from
 
 Use small **synthetic** logs with invented prompts, paths, IDs, outputs, and credentials. Do not copy local agent history, real client work, or a "sanitized" transcript without a deliberate privacy review. The package currently includes only three named synthetic fixture files; publication uses an allowlist excluding all tests/fixtures.
 
-Regenerate this package's `.steps` snapshots with `pnpm exec vitest run -u` and review the diffs.
+Regenerate this package's `.events` snapshots with `pnpm exec vitest run -u` and review the diffs.
 
 ## Licensing
 
