@@ -390,6 +390,9 @@ describe('pi', () => {
     broken.ingestLine(JSON.stringify({ type: 'custom', id: 'a', parentId: 'missing', timestamp: new Date(start).toISOString() }))
     expect(broken.getPath().complete).toBe(false)
     expect(() => broken.getTimeline()).toThrow('Incomplete')
+    // The missing parent arrives, pointing back at its child: a cycle, not an endless walk.
+    broken.ingestLine(JSON.stringify({ type: 'custom', id: 'missing', parentId: 'a', timestamp: new Date(start).toISOString() }))
+    expect(broken.getPath().complete).toBe(false)
   })
 
   it('records activity for messages, not metadata, at the entry time, not the message start time', () => {
