@@ -2,8 +2,8 @@ cwd /work/app
 +0s    prompt
 +10s   call read read ok src/fetch.ts
 +30s   call bash read ok src/http.ts
-+50s   call bash search ok
-+70s   call grep search ok
++50s   call bash discover ok
++70s   call grep discover ok
 +90s   call edit edit ok src/fetch.ts
 +110s  call bash run failed test
 +130s  call write edit ok src/retry.ts

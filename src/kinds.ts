@@ -1,37 +1,73 @@
 import type { CallStep } from './timeline.js'
 
 /**
- * What a call did. A shell call gets its kind from its command (shellKind), since
+ * What a call did. discover is finding things out without reading a known file:
+ * searching, listing, planning, looking up tools and skills. A shell call gets its kind from its command (shellKind), since
  * `sed -n`, `cat`, `rg` and `git diff` all arrive as the same shell tool; any other
  * call gets it from the tool's name (kindOf).
  */
-export type Kind = 'read' | 'search' | 'edit' | 'review' | 'run' | 'web' | 'delegate' | 'plan' | 'mcp' | 'other'
+export type Kind = 'read' | 'discover' | 'edit' | 'review' | 'run' | 'web' | 'delegate' | 'mcp' | 'other'
+
+/**
+ * The tool a call used, in one vocabulary across harnesses. A call's kind says what it
+ * did; its tool says how: a Shell call that runs `rg` is discover, one that runs `cat` is read.
+ */
+export type Tool =
+  | 'Shell' | 'Process' | 'Code' | 'Read' | 'Write' | 'Edit' | 'Patch' | 'Search' | 'Glob' | 'List'
+  | 'WebFetch' | 'WebSearch' | 'Todo' | 'Plan' | 'Skill' | 'Task' | 'Question' | 'Mcp' | 'Other'
 
 /** Claude Code names tools in PascalCase, Codex in snake_case, pi in lowercase. */
-const KINDS: Record<string, Kind> = {
-  read: 'read',
-  grep: 'search', glob: 'search', find: 'search', ls: 'search',
-  edit: 'edit', multiedit: 'edit', write: 'edit', notebookedit: 'edit', apply_patch: 'edit',
-  bash: 'run', shell: 'run', exec_command: 'run', run: 'run',
-  // Codex code mode: what a script did arrives as items named by type; js is its JavaScript runner.
-  commandexecution: 'run', js: 'run', filechange: 'edit', mcptoolcall: 'mcp',
-  webfetch: 'web', websearch: 'web', web_search: 'web',
-  task: 'delegate', agent: 'delegate', spawn_agent: 'delegate', wait_agent: 'delegate',
-  todowrite: 'plan', update_plan: 'plan', exitplanmode: 'plan', enterplanmode: 'plan',
+const TOOLS: Record<string, Tool> = {
+  bash: 'Shell', shell: 'Shell', exec_command: 'Shell', run: 'Shell', commandexecution: 'Shell',
+  write_stdin: 'Process', taskoutput: 'Process', bashoutput: 'Process', killshell: 'Process',
+  // Codex code mode: exec runs a script, js is its JavaScript runner.
+  exec: 'Code', js: 'Code', js_reset: 'Code',
+  read: 'Read', imageview: 'Read', view_image: 'Read',
+  write: 'Write',
+  edit: 'Edit', multiedit: 'Edit', notebookedit: 'Edit',
+  apply_patch: 'Patch', filechange: 'Patch',
+  grep: 'Search',
+  glob: 'Glob', find: 'Glob',
+  ls: 'List',
+  webfetch: 'WebFetch', websearch: 'WebSearch', web_search: 'WebSearch',
+  todowrite: 'Todo', update_plan: 'Todo',
+  exitplanmode: 'Plan', enterplanmode: 'Plan', get_goal: 'Plan',
+  skill: 'Skill', toolsearch: 'Skill', tool_search: 'Skill',
+  task: 'Task', agent: 'Task', spawn_agent: 'Task', wait_agent: 'Task', send_message: 'Task',
+  followup_task: 'Task', list_agents: 'Task', taskstop: 'Task',
+  askuserquestion: 'Question', request_user_input: 'Question', resolve_open_questions: 'Question',
+  mcptoolcall: 'Mcp', list_mcp_resources: 'Mcp', list_mcp_resource_templates: 'Mcp',
 }
 
-export function kindOf(tool: string): Kind {
-  // Claude names MCP tools mcp__server__tool; Codex names plugin tools server.tool.
-  if (tool.startsWith('mcp__') || tool.includes('.')) return 'mcp'
-  return KINDS[tool.toLowerCase()] ?? 'other'
+/** A tool's kind when the call itself says no more; a Shell call's kind comes from its command. */
+const KINDS: Record<Tool, Kind> = {
+  Shell: 'run', Process: 'run', Code: 'run',
+  Read: 'read',
+  Write: 'edit', Edit: 'edit', Patch: 'edit',
+  Search: 'discover', Glob: 'discover', List: 'discover', Todo: 'discover', Plan: 'discover', Skill: 'discover',
+  WebFetch: 'web', WebSearch: 'web',
+  Task: 'delegate',
+  Mcp: 'mcp',
+  Question: 'other', Other: 'other',
 }
+
+export function toolOf(name: string): Tool {
+  // Claude names MCP tools mcp__server__tool; Codex names plugin tools server.tool.
+  if (name.startsWith('mcp__') || name.includes('.')) return 'Mcp'
+  return TOOLS[name.toLowerCase()] ?? 'Other'
+}
+
+export const kindOf = (name: string): Kind => KINDS[toolOf(name)]
 
 /** A step's kind, falling back to its tool's name for steps parsed before kinds existed. */
 export const callKind = (s: CallStep): Kind => s.kind ?? kindOf(s.tool)
 
-/** Sets a call's kind and, for a shell call, the files its command read or wrote. */
+/**
+ * Sets a call's kind and, for a shell call, the files its command read or wrote. Only a
+ * Shell tool's command counts: other tools, MCP ones among them, can take a `command` argument.
+ */
 export function classify(step: CallStep, command?: string) {
-  if (command === undefined) {
+  if (command === undefined || toolOf(step.tool) !== 'Shell') {
     step.kind = kindOf(step.tool)
     return
   }
@@ -56,7 +92,7 @@ export function shellKind(command: string): ShellWork {
   return { kind, paths: [...new Set(parts.filter((p) => p.kind === kind).flatMap((p) => p.paths))] }
 }
 
-const RANK: Kind[] = ['edit', 'run', 'web', 'review', 'read', 'search']
+const RANK: Kind[] = ['edit', 'run', 'web', 'review', 'read', 'discover']
 
 /** `bash -lc '…'`, `/bin/zsh -lc …`: Codex wraps commands like this. */
 const SHELL_C = /^\s*(?:\S*\/)?(?:ba|z|fi)?sh\s+-l?c\s+([\s\S]*)$/
@@ -85,13 +121,13 @@ function judge({ words, writes, piped, body }: Part): ShellWork | undefined {
   if (prog === 'git') {
     const sub = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '-C')
     if (sub && GIT_REVIEW.has(sub)) return { kind: 'review', paths: [] }
-    if (sub === 'grep' || sub === 'ls-files') return { kind: 'search', paths: [] }
+    if (sub === 'grep' || sub === 'ls-files') return { kind: 'discover', paths: [] }
     return { kind: 'run', paths: [] }
   }
   if (prog === 'apply_patch') return { kind: 'edit', paths: [...(body ?? '').matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].map((m) => m[1]!.trim()) }
   if ((prog === 'sed' || prog === 'perl') && args.some((a) => /^-[a-zA-Z]*i/.test(a) || a === '--in-place')) return { kind: 'edit', paths: files(prog, args) }
   if (READ.has(prog)) return { kind: 'read', paths: files(prog, args) }
-  if (SEARCH.has(prog)) return { kind: 'search', paths: [] }
+  if (SEARCH.has(prog)) return { kind: 'discover', paths: [] }
   if (WRITE.has(prog)) return { kind: 'edit', paths: files(prog, args) }
   if (WEB.has(prog)) return { kind: 'web', paths: [] }
   return { kind: 'run', paths: [] }

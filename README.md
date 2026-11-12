@@ -47,10 +47,10 @@ const acc = new SessionAccumulator()
 for (const line of jsonlLines) ingestClaudeLine(acc, line)
 // Use ingestCodexLine(acc, line) for Codex rollouts instead.
 
-console.log(acc.timeline, acc.signals, acc.days)
+console.log(acc.timeline, acc.signals, acc.activity, acc.usage)
 ```
 
-These APIs intentionally emit text-free analytics. The accumulator must be per session. Call outcomes are absent/unknown until the log supplies sufficient evidence. Time attribution is an idle-gap heuristic, not measured work; daily buckets use the host's local timezone. Tone, test/commit detection, and rework are heuristics, not assessments of quality.
+These APIs intentionally emit text-free analytics. The accumulator must be per session. Call outcomes are absent/unknown until the log supplies sufficient evidence. The parser doesn't turn events into time: `activity` lists each event with its timestamp and whether you or the agent produced it, and `usage` lists each token report, for the consumer to total however it bills. Test/commit detection and rework are heuristics, not assessments of quality.
 
 ### pi branches and diagnostics
 

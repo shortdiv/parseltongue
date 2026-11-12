@@ -1,6 +1,6 @@
 import type { SessionAccumulator } from './accumulator.js'
 import { classify } from './kinds.js'
-import { isCommitCommand, isPushCommand, isTestCommand, tone, type CallStep } from './timeline.js'
+import { isAskTool, isCommitCommand, isPushCommand, isTestCommand, type CallStep } from './timeline.js'
 import { parseISO, type TokenCounts } from './types.js'
 
 /**
@@ -14,7 +14,7 @@ import { parseISO, type TokenCounts } from './types.js'
  * take the first of: an end event or `item_completed` with a status, or the
  * header Codex writes at the top of the call's output.
  */
-interface Line {
+export interface Line {
   type?: string
   timestamp?: string
   payload?: {
@@ -25,17 +25,14 @@ interface Line {
     cli_version?: string
     approval_policy?: string
     content?: { type?: string; text?: string }[]
-    info?: {
-      total_token_usage?: {
-        input_tokens?: number
-        cached_input_tokens?: number
-        cache_write_input_tokens?: number
-        output_tokens?: number
-      }
-    }
+    info?: { total_token_usage?: Usage }
+    /** token_usage_record: one model response's usage. */
+    usage?: Usage
     item?: {
       type?: string
       id?: string
+      path?: string
+      kind?: string
       status?: string
       tool?: string
       command?: string[] | string
@@ -43,6 +40,7 @@ interface Line {
     }
     reason?: string
     // Tool calls and their results
+    id?: string
     name?: string
     call_id?: string
     arguments?: string
@@ -57,6 +55,13 @@ interface Line {
   }
 }
 
+interface Usage {
+  input_tokens?: number
+  cached_input_tokens?: number
+  cache_write_input_tokens?: number
+  output_tokens?: number
+}
+
 /** Files a patch event touched, each with a unified diff (or the new file's content). */
 type Changes = Record<string, { unified_diff?: string; content?: string }>
 
@@ -66,6 +71,14 @@ const POLLING = new Set(['write_stdin', 'wait'])
 const CODE_CELL = 'exec'
 /** Inner actions that `item_completed` reports in code mode. */
 const ACTION_ITEMS = new Set(['CommandExecution', 'FileChange', 'McpToolCall'])
+/**
+ * Web activity: a search, an opened page or a find in page. Codex logs it as a
+ * `web_search_call` (no call_id, older ones no id at all), a `WebSearch` item, or an
+ * `Extension` item of kind web.search, often more than one of these under the same id.
+ */
+const WEB = 'web_search'
+const isWebItem = (it: { type?: string; kind?: string } | undefined) =>
+  it?.type === 'WebSearch' || (it?.type === 'Extension' && it.kind?.startsWith('web.') === true)
 
 type Outcome = 'ok' | 'failed' | 'declined'
 
@@ -79,14 +92,14 @@ export const isInjectedCodexText = (text: string) => {
 }
 
 /** Your prompt's text, if this line is one. */
-function promptText(l: Line): string | undefined {
+export function promptText(l: Line): string | undefined {
   const p = l.payload
   if (l.type !== 'response_item' || p?.type !== 'message' || p.role !== 'user') return undefined
   const text = p.content?.find((c) => c.type === 'input_text')?.text
   return text && !isInjectedCodexText(text) ? text : undefined
 }
 
-const outputText = (o: unknown): string =>
+export const outputText = (o: unknown): string =>
   typeof o === 'string'
     ? o
     : Array.isArray(o)
@@ -95,15 +108,18 @@ const outputText = (o: unknown): string =>
 
 /**
  * What a call's output says about how it went, from the header Codex puts at the
- * top (codex-rs/core/src/tools): "Exit code: N", "Process exited with code N",
+ * top (codex-rs/core/src/tools): "Exit code: N", "Process exited with code N", "Script completed",
  * "... rejected by user", "apply_patch verification failed". Older versions
  * wrote JSON with metadata.exit_code. A command still running names its session
  * ID instead, and a later write_stdin output gives the exit code.
  */
-function readOutput(text: string): { outcome?: Outcome; running?: string } {
+export function readOutput(text: string): { outcome?: Outcome; running?: string } {
   const head = text.trimStart().split('\n', 6).join('\n')
   if (/^(exec command|patch) rejected by user/.test(head)) return { outcome: 'declined' }
   if (/^apply_patch verification failed/m.test(head)) return { outcome: 'failed' }
+  // A code-mode script's output starts with how the script ended.
+  const script = /^Script (completed|failed)\b/m.exec(head)
+  if (script) return { outcome: script[1] === 'completed' ? 'ok' : 'failed' }
   const code = /^(?:Exit code: |Process exited with code )(-?\d+)/m.exec(head)
   if (code) return { outcome: code[1] === '0' ? 'ok' : 'failed' }
   const running = /^Process running with session ID (\S+)/m.exec(head)
@@ -118,7 +134,7 @@ function readOutput(text: string): { outcome?: Outcome; running?: string } {
 }
 
 /** An end event's or item's status, falling back to its exit code or success flag. */
-function statusOutcome(p: { status?: string; exit_code?: number; success?: boolean }): Outcome | undefined {
+export function statusOutcome(p: { status?: string; exit_code?: number; success?: boolean }): Outcome | undefined {
   if (p.status === 'declined') return 'declined'
   if (p.status === 'failed') return 'failed'
   if (p.status === 'completed') return 'ok'
@@ -146,7 +162,7 @@ function startCall(acc: SessionAccumulator, at: number, id: string, tool: string
   if (acc.seenToolIds.has(id)) return acc.pendingCalls.get(id)
   acc.seenToolIds.add(id)
   acc.signals.toolCalls++
-  const step: CallStep = { at, k: 'call', tool }
+  const step: CallStep = { at, k: 'call', id, tool }
   acc.timeline.push(step)
   acc.pendingCalls.set(id, step)
   if (command !== undefined) {
@@ -176,6 +192,7 @@ function settle(acc: SessionAccumulator, at: number, step: CallStep | undefined,
     acc.signals.failedCalls++
   } else {
     acc.signals.rejections++
+    acc.declined.add(step)
     acc.timeline.push({ at, k: 'decline' })
   }
 }
@@ -194,14 +211,18 @@ function ingestTool(acc: SessionAccumulator, line: Line, at: number) {
   const id = p.call_id
 
   if (line.type === 'response_item' && (p.type === 'function_call' || p.type === 'custom_tool_call') && id && p.name) {
-    if (p.name === CODE_CELL) {
-      acc.codeCells++
-      return
-    }
+    if (p.name === CODE_CELL) return
     let args: Record<string, unknown> = {}
     try {
       if (p.arguments) args = JSON.parse(p.arguments)
     } catch {}
+    if (isAskTool(p.name)) {
+      if (acc.seenToolIds.has(id)) return
+      acc.seenToolIds.add(id)
+      acc.asks.add(id)
+      acc.timeline.push({ at, k: 'ask', call: id })
+      return
+    }
     if (POLLING.has(p.name)) {
       if (typeof args.session_id === 'string' || typeof args.session_id === 'number') acc.polls.set(id, String(args.session_id))
       return
@@ -213,7 +234,23 @@ function ingestTool(acc: SessionAccumulator, line: Line, at: number) {
     return
   }
 
+  if (line.type === 'response_item' && p.type === 'web_search_call') {
+    const step = startCall(acc, at, p.id ?? `${WEB}:${acc.seenToolIds.size}`, WEB)
+    settle(acc, at, step, statusOutcome(p))
+    return
+  }
+
+  // Looking up which tools there are: the call carries its own status.
+  if (line.type === 'response_item' && p.type === 'tool_search_call' && id) {
+    settle(acc, at, startCall(acc, at, id, 'tool_search'), statusOutcome(p))
+    return
+  }
+
   if (line.type === 'response_item' && (p.type === 'function_call_output' || p.type === 'custom_tool_call_output') && id) {
+    if (acc.asks.delete(id)) {
+      acc.timeline.push({ at, k: 'answer', call: id })
+      return
+    }
     const { outcome, running } = readOutput(outputText(p.output))
     const polled = acc.polls.get(id)
     if (polled !== undefined) {
@@ -245,10 +282,18 @@ function ingestTool(acc: SessionAccumulator, line: Line, at: number) {
   } else if (p.type === 'item_completed' && p.item?.type && ACTION_ITEMS.has(p.item.type)) {
     const it = p.item
     item = { id: it.id, tool: it.tool ?? it.type!, outcome: statusOutcome(it), command: argv(it.command), changes: it.changes }
+  } else if (p.type === 'item_completed' && p.item?.type === 'ImageView') {
+    // The agent looked at an image; a completed item has no status of its own.
+    const step = startCall(acc, at, p.item.id ?? `image:${acc.seenToolIds.size}`, 'ImageView')
+    if (step && p.item.path) step.paths ??= [p.item.path]
+    settle(acc, at, step, 'ok')
+    return
+  } else if (p.type === 'item_completed' && isWebItem(p.item)) {
+    // A completed web item has no status of its own.
+    item = { id: p.item!.id, tool: WEB, outcome: statusOutcome(p.item!) ?? 'ok' }
   }
   if (!item?.id) return
   if (!acc.pendingCalls.has(item.id)) {
-    if (item.command !== undefined) acc.innerCommands++
     startCall(acc, at, item.id, item.tool, item.command, changesEdits(item.changes))
   }
   settle(acc, at, acc.pendingCalls.get(item.id), item.outcome)
@@ -257,7 +302,11 @@ function ingestTool(acc: SessionAccumulator, line: Line, at: number) {
 /** Codex reports running totals for the whole session. */
 function cumulativeTokens(l: Line): TokenCounts | undefined {
   const u = l.payload?.info?.total_token_usage
-  if (l.type !== 'event_msg' || l.payload?.type !== 'token_count' || !u) return undefined
+  return l.type === 'event_msg' && l.payload?.type === 'token_count' && u ? tokens(u) : undefined
+}
+
+/** Codex counts cached input inside input_tokens. */
+function tokens(u: Usage): TokenCounts {
   const cached = u.cached_input_tokens ?? 0
   return {
     input: Math.max(0, (u.input_tokens ?? 0) - cached),
@@ -275,6 +324,7 @@ export function ingestCodexLine(acc: SessionAccumulator, raw: string) {
   } catch {
     return
   }
+  if (!line || typeof line !== 'object') return
   const at = parseISO(line.timestamp)
   if (at === undefined) return
   const p = line.payload
@@ -291,7 +341,7 @@ export function ingestCodexLine(acc: SessionAccumulator, raw: string) {
   const timeline = acc.timeline
   if (prompt !== undefined) {
     signals.prompts++
-    timeline.push({ at, k: 'prompt', tone: tone(prompt) })
+    timeline.push({ at, k: 'prompt' })
   }
   ingestTool(acc, line, at)
   if (line.type === 'event_msg' && p?.type === 'turn_aborted' && p.reason === 'interrupted') {
@@ -303,8 +353,14 @@ export function ingestCodexLine(acc: SessionAccumulator, raw: string) {
     timeline.push({ at, k: 'compact' })
   }
 
-  // Running totals: bill each day only for what grew since the last report.
-  const total = cumulativeTokens(line)
+  // Newer logs record each response's usage; token_count then repeats it, and misses some.
+  if (line.type === 'token_usage_record' && p?.usage) {
+    acc.usageRecords = true
+    acc.addTokens(tokens(p.usage), at)
+    return
+  }
+  // Older logs: running totals, so record only what grew since the last report.
+  const total = acc.usageRecords ? undefined : cumulativeTokens(line)
   if (total) {
     const prev = acc.lastCumulative
     acc.addTokens(

@@ -1,6 +1,6 @@
 import { SessionAccumulator } from './accumulator.js'
 import { classify } from './kinds.js'
-import { isCommitCommand, isPushCommand, isTestCommand, tone, type CallStep, type Step } from './timeline.js'
+import { isCommitCommand, isPushCommand, isTestCommand, type CallStep, type Step } from './timeline.js'
 import { parseISO } from './types.js'
 
 type Json = Record<string, unknown>
@@ -112,7 +112,7 @@ export class PiSessionParser {
 
     if (type === 'session_info') this.metadata.name = string(line.name)
     if (type === 'model_change' && typeof line.modelId === 'string') acc.model = line.modelId
-    // Metadata should not split a long idle gap into apparently active work.
+    // Metadata entries (labels, settings) aren't activity.
     const activity = type === 'compaction' || type === 'branch_summary' || type === 'usage'
       || (type === 'message' && (role === 'user' || role === 'assistant' || role === 'toolResult' || role === 'bashExecution'))
     if (activity) acc.event(at, type === 'message' && role === 'user')
@@ -125,7 +125,7 @@ export class PiSessionParser {
     if (type === 'message') {
       if (role === 'user') {
         acc.signals.prompts++ // Image-only prompts count too; custom/system messages do not.
-        acc.timeline.push({ at, k: 'prompt', tone: tone(text(msg.content)) })
+        acc.timeline.push({ at, k: 'prompt' })
       } else if (role === 'assistant') {
         if (typeof msg.model === 'string') acc.model = msg.model
         this.usage(msg.usage, at)
@@ -139,9 +139,10 @@ export class PiSessionParser {
       } else if (role === 'toolResult') {
         this.usage(msg.usage, at) // Optional nested model work, not main-call usage.
         this.result(msg)
+      } else if (role === 'bashExecution') {
+        // A shell command you ran yourself, not an agent tool or prompt.
+        acc.timeline.push({ at, k: 'shell' })
       }
-      // bashExecution is a human-run shell command, not an agent tool or prompt.
-      // It contributes activity time, but not agent-call success/test features.
     }
     entry.timelineEnd = acc.timeline.length
   }
@@ -161,7 +162,7 @@ export class PiSessionParser {
     acc.seenToolIds.add(id)
     acc.signals.toolCalls++
     const tool = string(block.name) || 'unknown'
-    const step: CallStep = { at, k: 'call', tool }
+    const step: CallStep = { at, k: 'call', id, tool }
     acc.timeline.push(step)
     acc.pendingCalls.set(id, step)
     const args = object(block.arguments)
@@ -197,6 +198,7 @@ export class PiSessionParser {
     // Cancellation is not a failed test/commit. The assistant's aborted message
     // records the interrupt; don't count it again for each cancelled tool.
     const cancelled = msg.isError === true && /^(?:command|tool execution|operation) aborted\.?$/i.test(text(msg.content).trim())
+    if (cancelled) acc.interrupted.add(step)
     if (cancelled || typeof msg.isError !== 'boolean') return
     step.ok = !msg.isError
     if (!step.ok) {

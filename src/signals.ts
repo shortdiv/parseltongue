@@ -10,12 +10,6 @@ export const emptySignals = (): Signals => ({
   compactions: 0,
 })
 
-export function addSignals(a: Signals, b: Signals): Signals {
-  const out = emptySignals()
-  for (const k of Object.keys(out) as (keyof Signals)[]) out[k] = a[k] + b[k]
-  return out
-}
-
 /**
  * In-session thrash check: remembers lines the agent wrote per file, and flags an
  * edit as rework when most of what it replaces is the agent's own earlier output.
