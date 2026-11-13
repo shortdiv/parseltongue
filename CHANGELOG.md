@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — Unreleased
+## 0.1.0 — 2026-11-13
 
 - Parse Claude Code, Codex and pi sessions. No runtime dependencies; browser-safe ESM with TypeScript declarations.
 - `parseSession(raw)`: one time-ordered list of text-free events, each with a timestamp and who produced it. Text is opt-in with `{ text: true }`.
