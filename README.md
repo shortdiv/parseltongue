@@ -2,19 +2,19 @@
 
 `@shortdiv/parseltongue` — speak session transcripts.
 
-Zero-runtime-dependency, browser-safe TypeScript parsers for **Claude Code, Codex, and pi** session transcripts. Viewers, analytics tools, and other applications can share one implementation.
+Zero-runtime-dependency, browser-safe TypeScript parsers for coding-agent sessions. The **session API reads Claude Code, Codex and pi logs, and opencode, Cursor and Zed database rows**, into one text-free list of events. Viewers and analytics tools can share its format knowledge instead of each writing their own.
 
-**Status:** initial extraction, unreleased. Gemini CLI and Qwen Code are planned; they are not supported yet. The unscoped npm name `parseltongue` is already taken by an unrelated S-expression parser.
+**Status:** unreleased. The session API is tested on synthetic fixtures and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions. The unscoped npm name `parseltongue` is already taken by an unrelated S-expression parser.
 
 ## Scope
 
-- Accept transcript strings or individual JSONL lines; no filesystem discovery.
+- Accept transcript strings, individual JSONL lines, or database rows you read yourself; no filesystem or database access.
 - Turn each session into a time-ordered, text-free list of events, with the text available on request.
 - Read a log a line at a time, pairing each tool call with its result.
 - Preserve pi entry topology, fork metadata, and incomplete-ancestry diagnostics.
 - No Node APIs, network, storage, UI, billing, scoring models, or classifier dependencies at runtime.
 
-**This version is not yet a full-fidelity viewer parser.** The activity timeline omits full tool arguments/results, thinking, and unknown-event payloads. Keep the original file if you need them. Rich content blocks, source-line references, explicit format detection, and consistent validation diagnostics are follow-up work, not promises of this release.
+**The session API is analytics-oriented:** its events never hold tool arguments, results or unknown payloads, and text (prompts, answers, replies, reasoning) is returned only when asked for. It does not promise agent-context replay.
 
 ## Parse a session
 
@@ -50,8 +50,8 @@ import { reader } from '@shortdiv/parseltongue'
 
 const r = reader('claude')   // or 'codex', 'pi'; with { text: true }, r.text keeps the text
 for await (const line of lines) render(r.read(line))   // the events each line adds
-r.info                       // id, cwd, model, version, parent, as the log reveals them
-r.session()                  // snapshot: events read so far, call statuses, info and warnings
+r.session()                  // snapshot: events read so far, call statuses, warnings, and the
+                             // id, cwd, model, version and parent as the log reveals them
 ```
 
 Each event comes out once and stays as it was, so a live view never has to revise what it showed.
@@ -84,9 +84,9 @@ const zed = reader('zed', { id: 'thread-id' })
 zed.read({ updatedAt: '2026-01-01T00:00:00Z', folders: '["/work/app"]' })
 ```
 
-The optional `id` supplies the session id; without it, `session().id` is empty. Inputs are `OpencodeRow` (`{ message } | { part }`), `CursorBubble` and `ZedThread`; their types document the fields to read. Read only those fields, especially in Cursor's database, which also holds credentials. These readers do not open databases or retain text.
+The optional `id` supplies the session id; without it, `session()` has no `id`. Inputs are `OpencodeRow` (`{ message } | { part }`), `CursorBubble` and `ZedThread`; their types document the fields to read. Read only those fields, especially in Cursor's database, which also holds credentials. These readers do not open databases or retain text.
 
-Rows change in place, so pass a row again whenever it changes: with its id (`callId`, `id`, `bubbleId`), each reader emits only what's new, like a tool part's result once it ends. Zed emits an event when the thread's update timestamp changes.
+Rows change in place, so pass a row again whenever it changes: with its id (`callId`, `id`, `bubbleId`), each reader emits only what's new, like a tool part's result once it ends. Zed emits an event when the thread's update timestamp changes. Older Cursor versions didn't store a time per bubble (`createdAt`); those bubbles produce no events, because there's no honest time to give them.
 
 ## Public API
 
@@ -94,7 +94,7 @@ Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`. Every p
 
 ## Compatibility and limitations
 
-- Every API detects the format the same way (`detect`): content signatures in the first 250 records, never the filename. A log that matches no format, or more than one, is `unknown` with a warning, never Claude by default; so are Gemini CLI and Qwen Code logs, which only the viewer reads.
+- `detect` and `parseSession` recognise a log by content signatures in the first 250 records, never the filename. It returns the log harnesses it recognises (`claude`, `codex`, `pi`), so `reader(agent)` takes any of them; `reader` itself doesn't detect, it reads the harness you name. A log that matches none, or more than one, is `unknown` with a warning, never Claude by default; so are logs from harnesses Parseltongue doesn't read yet, like Gemini CLI and Qwen Code.
 - Claude prompts exclude meta prompts, injected text and subagent lines from a parent's file. Codex excludes user text that opens with its own injected tags. pi excludes custom/system messages from prompts and keeps every branch's events.
 - Invalid JSON lines are skipped. pi reports counts and ancestry warnings; Claude/Codex do not provide per-line diagnostics. This is **not a JSONL validator**.
 - `reader(agent)` trusts the agent you name: syntactically valid JSON is not automatically a valid session record.
@@ -103,7 +103,7 @@ Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`. Every p
 
 ## Develop independently
 
-This directory is self-contained and can be copied to its own repository. It has no workspace runtime dependencies. Requires Node 22+ and pnpm for development; runtime output is ES2022 ESM with declarations.
+It has no runtime dependencies. Requires Node 22+ and pnpm for development; runtime output is ES2022 ESM with declarations.
 
 ```sh
 pnpm install
@@ -115,7 +115,7 @@ pnpm check:package
 
 `check:package` builds and packs the library, installs that tarball into an isolated temporary consumer, checks its public ESM API and TypeScript declarations without Node types, and checks the publication allowlist. Runtime compilation also excludes all Node types.
 
-Only synthetic fixtures live here. Real/sanitized local-session corpora remain outside this package. Tests and fixtures are not shipped in the npm tarball. Compiled source maps contain parser source, not transcripts.
+Fixtures include synthetic logs and tiny, privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions, with every prompt, path, id and output replaced. Original sessions and private corpora remain outside the repository. Tests and fixtures are not shipped in the npm tarball. Compiled source maps contain parser source, not transcripts.
 
 ## Release
 

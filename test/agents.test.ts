@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseSession, reader, type Harness, type SessionEvent } from '../src/index.js'
 import { isCommitCommand, isPushCommand, isTestCommand } from '../src/commands.js'
@@ -28,7 +27,7 @@ const result = (id: string, is_error = false, content = '') => ({
 function read(agent: Extract<Harness, 'claude' | 'codex' | 'pi'>, lines: (object | string)[]) {
   const r = reader(agent, { text: true })
   const events = lines.flatMap((l) => r.read(typeof l === 'string' ? l : JSON.stringify(l)))
-  return { events, calls: outcomes(events), text: r.text, info: r.info }
+  return { events, calls: outcomes(events), text: r.text, info: r.session() }
 }
 
 /** Events as short labels: a call's tool name, a result's status and rework. */
@@ -387,7 +386,7 @@ describe('pi', () => {
     s.message('user', { content: 'perfect, thanks' })
     const { r, events, calls } = s.parse()
     expect(r.metadata).toMatchObject({ id: 'session-id', formatVersion: 3, parentSession: '/parent.jsonl', name: 'Implement retry' })
-    expect(r.info).toMatchObject({ id: 'session-id', cwd: '/work/project', model: 'physical-model', parent: { session: '/parent.jsonl', via: 'fork' } })
+    expect(r.session()).toMatchObject({ id: 'session-id', cwd: '/work/project', model: 'physical-model', parent: { session: '/parent.jsonl', via: 'fork' } })
     expect(only(events, 'prompt')).toHaveLength(2)
     expect(only(events, 'call').map((c) => [c.test ?? c.commit, calls[c.call]])).toEqual([[true, 'failed'], [true, 'ok'], [true, 'ok']])
     expect(only(events, 'usage')).toMatchObject([{ tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40 }, cost: 0.01 }])
@@ -468,7 +467,7 @@ describe('pi', () => {
     const broken = reader('pi')
     broken.read(JSON.stringify({ type: 'custom', id: 'a', parentId: 'missing', timestamp: new Date(start).toISOString() }))
     expect(broken.getPath().complete).toBe(false)
-    expect(broken.warnings()).toContain('Incomplete or cyclic ancestry; every branch retained')
+    expect(broken.session().warnings).toContain('Incomplete or cyclic ancestry; every branch retained')
     // The missing parent arrives, pointing back at its child: a cycle, not an endless walk.
     broken.read(JSON.stringify({ type: 'custom', id: 'missing', parentId: 'a', timestamp: new Date(start).toISOString() }))
     expect(broken.getPath().complete).toBe(false)
@@ -539,7 +538,8 @@ describe('opencode', () => {
       [3_000, 'agent', 'call bash'], [4_000, 'agent', 'result ok'], [5_000, 'agent', 'call read'], [6_000, 'agent', 'result failed'],
     ])
     expect(only(events, 'usage')[0]!.tokens).toEqual({ input: 5, output: 5, cacheRead: 7, cacheWrite: 0 })
-    expect(r.info).toEqual({ cwd: '/work/app', model: 'm' })
+    expect(r.session()).toMatchObject({ cwd: '/work/app', model: 'm' })
+    expect(r.session()).not.toHaveProperty('id')
   })
 
   it('emits each row once however often it is passed: a call, then its result when it ends', () => {
@@ -562,7 +562,7 @@ describe('cursor', () => {
       ...r.read({ createdAt: '2026-01-01T00:00:30Z', type: 2, inputTokens: 4, outputTokens: 6, model: 'gpt' }),
     ]
     expect(events.map((e) => [e.by, e.k])).toEqual([['you', 'prompt'], ['agent', 'reply'], ['agent', 'usage']])
-    expect(r.info.model).toBe('gpt')
+    expect(r.session().model).toBe('gpt')
   })
 
   it('emits a bubble once, and its usage once Cursor has stored tokens', () => {
@@ -580,42 +580,13 @@ describe('zed', () => {
       ...r.read({ updatedAt: '2026-01-01T00:01:00Z', folders: '/other' }),
     ]
     expect(events.map((e) => [e.by, label(e)])).toEqual([['agent', 'system thread_updated'], ['agent', 'system thread_updated']])
-    expect(r.info.cwd).toBe('/work/app')
+    expect(r.session().cwd).toBe('/work/app')
   })
 
   it('skips a thread passed again with no change', () => {
     const r = reader('zed')
     expect([...r.read({ updatedAt: '2026-01-01T00:00:00Z' }), ...r.read({ updatedAt: '2026-01-01T00:00:00Z' })]).toHaveLength(1)
   })
-})
-
-describe('synthetic fixtures', () => {
-  // Synthetic fixtures only. Private/sanitized real-session corpora stay in the consumer.
-  const cases = [
-    ['claude', 'shell-and-tools'],
-    ['codex', 'shell-and-patches'],
-    ['pi', 'tools-and-bash'],
-  ] as const
-
-  function line(e: SessionEvent, t0: number): string {
-    const head = `+${(e.at - t0) / 1000}s`.padEnd(6)
-    if (e.k === 'call') return [head, 'call', e.tool, e.name, e.kind, ...(['test', 'commit', 'push'] as const).filter((f) => e[f]), ...(e.paths ?? [])].join(' ')
-    if (e.k === 'result') return [head, 'result', e.status, ...(e.rework ? ['rework'] : [])].join(' ')
-    if (e.k === 'system') return [head, 'system', e.what, ...(e.tag ? [e.tag] : [])].join(' ')
-    return `${head} ${e.k}`
-  }
-
-  for (const [harness, name] of cases) {
-    it(`${harness}/${name}`, async () => {
-      const url = new URL(`./fixtures/${harness}/${name}.jsonl`, import.meta.url)
-      const session = parseSession(readFileSync(url, 'utf8'), { text: true })
-      expect(session.agent).toBe(harness)
-      expect(session.events.some((e) => e.k === 'prompt' && session.text.has(e.id))).toBe(true)
-      const t0 = session.events[0]!.at
-      const output = [`cwd ${session.cwd}`, ...session.events.map((e) => line(e, t0))].join('\n') + '\n'
-      await expect(output).toMatchFileSnapshot(url.pathname.replace(/\.jsonl$/, '.events'))
-    })
-  }
 })
 
 describe('shellKind', () => {

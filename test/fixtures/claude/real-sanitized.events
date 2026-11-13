@@ -1,0 +1,6 @@
+cwd /work/sample
++0s    prompt
++1.909s think
++1.909s usage
++2.106s call Other unknown_tool other
++2.111s result ok

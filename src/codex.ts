@@ -132,7 +132,7 @@ export const outputText = (o: unknown): string =>
  * wrote JSON with metadata.exit_code. A command still running names its session
  * ID instead, and a later write_stdin output gives the exit code.
  */
-export function readOutput(text: string): { outcome?: Outcome; running?: string } {
+function readOutput(text: string): { outcome?: Outcome; running?: string } {
   const head = text.trimStart().split('\n', 6).join('\n')
   if (/^(exec command|patch) rejected by user/.test(head)) return { outcome: 'declined' }
   if (/^apply_patch verification failed/m.test(head)) return { outcome: 'failed' }
@@ -153,7 +153,7 @@ export function readOutput(text: string): { outcome?: Outcome; running?: string 
 }
 
 /** An end event's or item's status, falling back to its exit code or success flag. */
-export function statusOutcome(p: { status?: string; exit_code?: number; success?: boolean }): Outcome | undefined {
+function statusOutcome(p: { status?: string; exit_code?: number; success?: boolean }): Outcome | undefined {
   if (p.status === 'declined') return 'declined'
   if (p.status === 'failed') return 'failed'
   if (p.status === 'completed') return 'ok'
@@ -230,7 +230,7 @@ export function codex(): Adapter {
       const p = l.payload ?? {}
       // A subagent's file repeats its parent's session_meta after its own; the first is the session's.
       if (l.type === 'session_meta' && !info.id) {
-        info.id = p.id ?? ''
+        info.id = p.id
         const parent = p.source?.subagent?.thread_spawn?.parent_thread_id
         if (parent) info.parent = { session: parent, via: 'subagent' }
       }

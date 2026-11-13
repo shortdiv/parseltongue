@@ -1,5 +1,5 @@
 import { callDraft } from './commands.js'
-import { blockText, readWith, type Adapter, type Draft, type Reader, type SessionEvent, type Status } from './events.js'
+import { blockText, readWith, type Adapter, type Draft, type Reader, type SessionEvent, type SessionText, type Status } from './events.js'
 import { reworks, ReworkTracker, type Edit } from './rework.js'
 import { parseISO } from './util.js'
 
@@ -46,7 +46,7 @@ export interface PiReader extends Reader {
  * append order, abandoned branches included: compaction and context edits change
  * what the model sees, not work already done. getPath selects one branch.
  */
-export function piReader(opts: { text?: boolean } = {}): PiReader {
+export function piReader(opts: { text?: boolean } = {}): PiReader & { text?: SessionText } {
   const metadata: PiMetadata = {}
   const entries = new Map<string, PiEntry>()
   const diagnostics = { malformedLines: 0, ignoredLines: 0, duplicateEntries: 0, orphanResults: 0 }
@@ -80,7 +80,7 @@ export function piReader(opts: { text?: boolean } = {}): PiReader {
         metadata.id = string(line.id)
         metadata.formatVersion = typeof line.version === 'number' ? line.version : 1
         metadata.parentSession = string(line.parentSession)
-        adapter.info.id = metadata.id ?? ''
+        adapter.info.id = metadata.id
         adapter.info.cwd = string(line.cwd)
         if (metadata.parentSession) adapter.info.parent = { session: metadata.parentSession, via: 'fork' }
         return undefined

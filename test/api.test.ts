@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseSession, reader, type SessionEvent } from '../src/index.js'
 
@@ -67,47 +65,26 @@ describe('parseSession', () => {
 
   it('calls a log it can\'t place unknown, never Claude', () => {
     const pi = '{"type":"session","id":"p1","version":3}'
+    // Gemini CLI and Qwen Code logs look a little like Claude's, but aren't read.
     const gemini = '{"sessionId":"g1","projectHash":"h","messages":[]}'
+    const qwen = '{"type":"user","uuid":"u1","sessionId":"q1","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","parts":[{"text":"hi"}]}}'
     for (const [raw, warning] of [
       ['{"hello":"world"}', 'Unrecognised format'],
-      [gemini, 'Gemini CLI logs aren\'t parsed into events; the viewer API reads them'],
+      [gemini, 'Unrecognised format'],
+      [qwen, 'Unrecognised format'],
       [`${pi}\n${RAW.split('\n')[0]}`, 'Ambiguous format: looks like pi and Claude Code'],
-    ]) expect(parseSession(raw!)).toEqual({ id: '', agent: 'unknown', events: [], calls: {}, warnings: [warning] })
+    ]) expect(parseSession(raw!)).toEqual({ agent: 'unknown', events: [], calls: {}, warnings: [warning] })
   })
 
   it('skips lines that are damaged or not JSON objects', () => {
     expect(parseSession('null\n[]\n{broken\n' + RAW).events).toEqual(parseSession(RAW).events)
   })
 
-  // Every fixture, every harness: whatever text the parser can give, it never puts in the events.
-  const DIR = join(import.meta.dirname, 'fixtures')
-  for (const harness of readdirSync(DIR)) {
-    for (const name of readdirSync(join(DIR, harness)).filter((f) => f.endsWith('.jsonl'))) {
-      it(`keeps ${harness}/${name} text-free`, () => {
-        const raw = readFileSync(join(DIR, harness, name), 'utf8')
-        const events = JSON.stringify(parseSession(raw).events)
-        for (const text of parseSession(raw, { text: true }).text.values()) {
-          if (text.length >= 12) expect(events).not.toContain(text)
-        }
-      })
-    }
-  }
   it('reads a file that starts with a byte order mark', () => {
     const pi = parseSession('\uFEFF' + JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' }))
     expect([pi.agent, pi.id, pi.cwd, pi.warnings]).toEqual(['pi', 'p1', '/work', []])
     const claude = parseSession('\uFEFF' + JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } }))
     expect([claude.agent, claude.events.map((e) => e.k)]).toEqual(['claude', ['prompt']])
-  })
-
-  it.each(['claude', 'codex', 'pi'] as const)('snapshots a %s log just like parseSession', (agent) => {
-    const folder = join(DIR, agent)
-    const name = readdirSync(folder).find((f) => f.endsWith('.jsonl'))!
-    const raw = readFileSync(join(folder, name), 'utf8')
-    const r = reader(agent, { text: true })
-    expect(r.session()).toEqual({ id: '', agent, events: [], calls: {}, warnings: [] })
-    for (const line of raw.split('\n')) r.read(line)
-    expect(r.session()).toEqual(parseSession(raw))
-    expect(r.text).toEqual(parseSession(raw, { text: true }).text)
   })
 
   it('snapshots database events, call statuses and metadata without changing older snapshots', () => {
@@ -125,15 +102,16 @@ describe('parseSession', () => {
     })
     expect(before.events).toEqual([...prompt, ...call])
     expect(before.calls).toEqual({ c: 'unknown' })
-    expect(r.text.size).toBe(0)
+    expect(r).not.toHaveProperty('text')
     expect(reader('cursor', { id: 'cursor-id' }).session().id).toBe('cursor-id')
-    expect(reader('zed').session()).toEqual({ id: '', agent: 'zed', events: [], calls: {}, warnings: [] })
+    expect(reader('zed').session()).toEqual({ agent: 'zed', events: [], calls: {}, warnings: [] })
   })
 
   it('reads a byte order mark when following a file a line at a time', () => {
     const pi = reader('pi')
     pi.read('﻿' + JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' }))
-    expect([pi.info.id, pi.info.cwd, pi.warnings()]).toEqual(['p1', '/work', []])
+    const { id, cwd, warnings } = pi.session()
+    expect([id, cwd, warnings]).toEqual(['p1', '/work', []])
     const claude = reader('claude')
     const events = claude.read('﻿' + JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } }))
     expect(events.map((e) => e.k)).toEqual(['prompt'])

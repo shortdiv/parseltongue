@@ -72,9 +72,10 @@ export interface SessionInfo {
 
 /** The harnesses supported by the event readers. */
 export type Harness = 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor' | 'zed'
+/** The harnesses that write logs, which `detect` recognises and `parseSession` reads. */
+export type LogHarness = Extract<Harness, 'claude' | 'codex' | 'pi'>
 
 export interface Session extends SessionInfo {
-  id: string
   agent: Harness | 'unknown'
   events: SessionEvent[]
   /** Each call's final status, by call id: its result's, or unknown without one. */
@@ -106,12 +107,20 @@ export interface Adapter {
 
 /** Streams lines or database rows. Each event comes out once and never changes. */
 export interface Reader<In = string> {
+  read(input: In): SessionEvent[]
+  /** A snapshot of the session read so far: events, call statuses, info and warnings. */
+  session(): Session
+}
+
+/** A log reader made with { text: true }: also the text behind each event read so far, by event id. */
+export interface TextReader<In = string> extends Reader<In> {
+  text: SessionText
+}
+
+/** What a reader keeps as it reads, before it's wrapped with session(). */
+export interface Source<In> {
   info: SessionInfo
   read(input: In): SessionEvent[]
-  /** A snapshot of the session read so far. */
-  session(): Session
-  /** With { text: true }: the text behind each event read so far, by event id. */
-  text: SessionText
   warnings(): string[]
 }
 
@@ -132,10 +141,9 @@ export function sequence() {
 }
 
 /** Keeps emitted events and builds a fresh session snapshot on demand. */
-export function withSession<In>(agent: Harness, source: Omit<Reader<In>, 'session'>): Reader<In> {
+export function withSession<In>(agent: Harness, source: Source<In>): Reader<In> {
   const events: SessionEvent[] = []
   return {
-    ...source,
     read(input) {
       const added = source.read(input)
       events.push(...added)
@@ -143,7 +151,7 @@ export function withSession<In>(agent: Harness, source: Omit<Reader<In>, 'sessio
     },
     session() {
       const session: Session = {
-        ...source.info, id: source.info.id ?? '', agent,
+        ...source.info, agent,
         events: [...events], calls: outcomes(events), warnings: [...source.warnings()],
       }
       for (const k of Object.keys(session) as (keyof Session)[]) if (session[k] === undefined) delete session[k]
@@ -153,13 +161,12 @@ export function withSession<In>(agent: Harness, source: Omit<Reader<In>, 'sessio
 }
 
 /** Wraps an adapter: parses each line, numbers its events, keeps text if asked. */
-export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolean } = {}): Reader {
+export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolean } = {}): Reader & { text?: SessionText } {
   const text: SessionText = new Map()
   const number = sequence()
   let first = true
-  return withSession<string>(agent, {
+  const reader = withSession<string>(agent, {
     info: adapter.info,
-    text,
     warnings: () => adapter.warnings?.() ?? [],
     read(line) {
       adapter.line?.()
@@ -192,6 +199,7 @@ export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolea
       return events
     },
   })
+  return opts.text ? { ...reader, text } : reader
 }
 
 /** Each call's final status: its result's, or unknown without one. */

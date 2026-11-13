@@ -56,7 +56,6 @@ export function opencodeReader(opts: { id?: string } = {}): Reader<OpencodeRow> 
   const started = new Set<string>()
   const settled = new Set<string>()
   const rows = {
-    info,
     /**
      * A reply is logged when it starts; it's at its completion time if it has one.
      * With an id, a reply waits until it has finished, so its tokens are final.
@@ -98,7 +97,7 @@ export function opencodeReader(opts: { id?: string } = {}): Reader<OpencodeRow> 
     },
   }
   return withSession<OpencodeRow>('opencode', {
-    info, text: new Map(), warnings: () => [],
+    info, warnings: () => [],
     read: (row) => 'message' in row ? rows.message(row.message) : rows.part(row.part),
   })
 }
@@ -130,7 +129,7 @@ export function cursorReader(opts: { id?: string } = {}): Reader<CursorBubble> {
   const bubbles = new Set<string>()
   const counted = new Set<string>()
   return withSession<CursorBubble>('cursor', {
-    info, text: new Map(), warnings: () => [],
+    info, warnings: () => [],
     read(b): SessionEvent[] {
       const at = parseISO(b.createdAt)
       if (at === undefined) return []
@@ -165,7 +164,7 @@ export function zedReader(opts: { id?: string } = {}): Reader<ZedThread> {
   const number = sequence()
   let last: string | undefined
   return withSession<ZedThread>('zed', {
-    info, text: new Map(), warnings: () => [],
+    info, warnings: () => [],
     read(t): SessionEvent[] {
       const at = parseISO(t.updatedAt)
       if (at === undefined || t.updatedAt === last) return []

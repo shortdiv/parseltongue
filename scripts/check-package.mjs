@@ -61,6 +61,16 @@ cursor.read({ type: 1 })
 const zed: Reader<ZedThread> = reader('zed', { id: 'z' })
 zed.read({ updatedAt: '2026-01-01T00:00:00Z' })
 const snapshot: Session = opencode.session()
+// Text is typed only when it was asked for.
+const flag = Math.random() > 0.5
+const maybe = parseSession('', { text: flag })
+maybe.text?.size
+parseSession('', {})
+reader('codex', { text: true }).text.size
+reader('pi', { text: true }).text.size
+reader('claude', { text: flag }).text?.size
+// @ts-expect-error Without { text: true }, a reader has no text.
+reader('claude').text
 // @ts-expect-error Database readers take rows, not log lines.
 opencode.read('')
 // @ts-expect-error Log readers take lines, not rows.

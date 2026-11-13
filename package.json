@@ -1,7 +1,7 @@
 {
   "name": "@shortdiv/parseltongue",
   "version": "0.1.0",
-  "description": "Browser-safe TypeScript parsers and chronological normalization for coding-agent session transcripts",
+  "description": "Browser-safe TypeScript parsers that turn coding-agent sessions into text-free events",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -14,8 +14,9 @@
     }
   },
   "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "devEngines": { "runtime": { "name": "node", "version": ">=22" } },
   "publishConfig": { "access": "public" },
-  "keywords": ["claude-code", "codex", "pi", "jsonl", "transcript", "session", "parser"],
+  "keywords": ["claude-code", "codex", "pi", "opencode", "cursor", "zed", "jsonl", "transcript", "session", "parser"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",

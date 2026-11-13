@@ -1,20 +1,21 @@
 import { claude } from './claude.js'
 import { codex } from './codex.js'
 import { detect } from './detect.js'
-import { readWith, type Harness, type Reader, type Session, type SessionText } from './events.js'
+import { readWith, type Harness, type LogHarness, type Reader, type Session, type SessionText } from './events.js'
 import { opencodeReader, cursorReader, zedReader, type OpencodeRow, type CursorBubble, type ZedThread } from './rows.js'
 import { piReader, type PiReader } from './pi.js'
 
-type LogHarness = Extract<Harness, 'claude' | 'codex' | 'pi'>
 type Inputs = { claude: string; codex: string; pi: string; opencode: OpencodeRow; cursor: CursorBubble; zed: ZedThread }
 type Options<H extends Harness> = H extends LogHarness ? { text?: boolean } : { id?: string }
+/** text is there when { text: true } is passed, maybe there for a boolean, never otherwise. */
+type WithText<O> = O extends { text: true } ? { text: SessionText } : 'text' extends keyof O ? { text?: SessionText } : {}
+type ReaderFor<H extends Harness, O> = (H extends 'pi' ? PiReader : Reader<Inputs[H]>) & WithText<O>
 
 /**
  * Reads one harness's log lines or database rows as the session is written.
  * Each event comes out once, finished: a call's outcome arrives later as its result.
  */
-export function reader(agent: 'pi', opts?: { text?: boolean }): PiReader
-export function reader<H extends Harness>(agent: H, opts?: Options<H>): Reader<Inputs[H]>
+export function reader<H extends Harness, O extends Options<H> = {}>(agent: H, opts?: O): ReaderFor<H, O>
 export function reader(agent: Harness, opts: { text?: boolean; id?: string } = {}): Reader<any> {
   if (agent === 'pi') return piReader(opts)
   if (agent === 'opencode') return opencodeReader(opts)
@@ -23,7 +24,7 @@ export function reader(agent: Harness, opts: { text?: boolean; id?: string } = {
   return readWith(agent, agent === 'codex' ? codex() : claude(), opts)
 }
 
-const NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', gemini: 'Gemini CLI', qwen: 'Qwen Code' }
+const NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'pi' }
 
 /** Which harness wrote a log, or why it's unknown. */
 function harnessOf(raw: string): { agent: LogHarness | 'unknown'; warning?: string } {
@@ -31,20 +32,7 @@ function harnessOf(raw: string): { agent: LogHarness | 'unknown'; warning?: stri
   if (found.length > 1) return { agent: 'unknown', warning: `Ambiguous format: looks like ${found.map((f) => NAMES[f]).join(' and ')}` }
   const [format] = found
   if (format === undefined) return { agent: 'unknown', warning: 'Unrecognised format' }
-  if (format === 'gemini' || format === 'qwen') return { agent: 'unknown', warning: `${NAMES[format]} logs aren't parsed into events; the viewer API reads them` }
   return { agent: format }
-}
-
-/** Reads a whole log for parseSession; internal, not exported from the package. */
-export function readSession(raw: string) {
-  const { agent, warning } = harnessOf(raw)
-  const warnings = warning ? [warning] : []
-  if (agent === 'unknown') return { session: { id: '', agent, events: [], calls: {}, warnings } as Session, text: new Map() as SessionText }
-  const r = reader(agent, { text: true })
-  for (const line of raw.split('\n')) r.read(line)
-  const session = r.session()
-  session.warnings.unshift(...warnings)
-  return { session, text: r.text, pi: agent === 'pi' ? (r as PiReader) : undefined }
 }
 
 /**
@@ -53,7 +41,14 @@ export function readSession(raw: string) {
  */
 export function parseSession(raw: string): Session
 export function parseSession(raw: string, opts: { text: true }): Session & { text: SessionText }
-export function parseSession(raw: string, opts?: { text?: boolean }): Session | (Session & { text: SessionText }) {
-  const { session, text } = readSession(raw)
-  return opts?.text ? { ...session, text } : session
+export function parseSession(raw: string, opts?: { text?: boolean }): Session & { text?: SessionText }
+export function parseSession(raw: string, opts: { text?: boolean } = {}): Session & { text?: SessionText } {
+  const { agent, warning } = harnessOf(raw)
+  if (agent === 'unknown') {
+    const session: Session = { agent, events: [], calls: {}, warnings: warning ? [warning] : [] }
+    return opts.text ? { ...session, text: new Map() } : session
+  }
+  const r = reader(agent, opts)
+  for (const line of raw.split('\n')) r.read(line)
+  return r.text ? { ...r.session(), text: r.text } : r.session()
 }

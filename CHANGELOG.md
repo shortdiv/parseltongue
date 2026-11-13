@@ -10,4 +10,5 @@
 - System events are tagged `context` or `log` so consumers can drop them.
 - Only labels, no accounting: time, tone and day buckets are left to the consumer.
 - Readers for opencode, Cursor and Zed database rows.
-- A small public API: `parseSession`, `reader`, `detect` and `isInjectedCodexText`, with every public type in `types.ts`. One `reader(agent)` for all six harnesses reads log lines or database rows; `session()` returns the events, call statuses, info and warnings read so far. `normalizeSession` and the classifier and token helpers are gone or internal.
+- `detect(raw)` lists every log harness a log's content matches, never using its filename: `[]` for none. `parseSession` calls a log that matches none, or several, `unknown` with a warning instead of defaulting to Claude.
+- A small public API: `parseSession`, `reader`, `detect` and `isInjectedCodexText`, with every public type in `types.ts`. One `reader(agent)` for all six harnesses reads log lines or database rows; `session()` returns the events, call statuses, info and warnings read so far. A reader has `text` only when made with `{ text: true }`, and an id the log doesn't give is left out, not empty.

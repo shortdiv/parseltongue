@@ -1,0 +1,12 @@
+cwd /work/sample
++0s    system model_change
++0s    system thinking_level_change
++12.807s system message:system context
++12.808s prompt
++15.658s call Read read read /work/sample/file.txt
++15.658s usage
++15.664s result ok
++20.328s reply
++20.328s call Shell bash run
++20.328s usage
++20.393s result ok

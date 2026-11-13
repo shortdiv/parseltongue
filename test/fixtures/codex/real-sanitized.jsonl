@@ -1,0 +1,10 @@
+{"timestamp":"2026-01-01T10:00:00.000Z","type":"session_meta","payload":{"session_id":"id-1","id":"id-1","timestamp":"2026-01-01T09:58:44.496Z","cwd":"/work/sample","cli_version":"0.0.0-sanitized"}}
+{"timestamp":"2026-01-01T10:00:00.343Z","type":"response_item","payload":{"type":"message","id":"id-2","role":"user","content":[{"type":"input_text","text":"<environment_context>[sanitized]</environment_context>"}]}}
+{"timestamp":"2026-01-01T10:00:00.350Z","type":"turn_context","payload":{"cwd":"/work/sample","model":"sample-model","summary":"[sanitized]"}}
+{"timestamp":"2026-01-01T10:00:00.364Z","type":"response_item","payload":{"type":"message","id":"id-3","role":"user","content":[{"type":"input_text","text":"[sanitized]"}]}}
+{"timestamp":"2026-01-01T10:00:02.088Z","type":"response_item","payload":{"type":"reasoning","id":"id-4","summary":[]}}
+{"timestamp":"2026-01-01T10:00:03.721Z","type":"response_item","payload":{"type":"message","status":"completed","id":"id-5","role":"assistant","content":[{"type":"output_text","text":"[sanitized]"}]}}
+{"timestamp":"2026-01-01T10:00:05.246Z","type":"response_item","payload":{"type":"custom_tool_call","id":"id-6","status":"completed","call_id":"id-7","name":"exec","input":"[sanitized]"}}
+{"timestamp":"2026-01-01T10:00:05.291Z","type":"token_usage_record","payload":{"session_id":"id-1","usage":{"input_tokens":16720,"cached_input_tokens":11904,"cache_write_input_tokens":0,"output_tokens":180}}}
+{"timestamp":"2026-01-01T10:00:08.866Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"id-8","command":["printf sample","printf sample","printf sample"],"cwd":"/work/sample","status":"completed","exit_code":0}}}
+{"timestamp":"2026-01-01T10:00:08.891Z","type":"response_item","payload":{"type":"custom_tool_call_output","id":"id-9","call_id":"id-7","output":[{"type":"input_text","text":"Exit code: 0\nOutput:\n[sanitized]"},{"type":"input_text","text":"[sanitized]"}]}}

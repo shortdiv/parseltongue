@@ -1,0 +1,52 @@
+cwd /work/sample
++0s    prompt
++1.893s reply
++1.893s usage
++3.357s reply
++3.357s usage
++4.846s reply
++4.846s usage
++6.241s reply
++6.241s usage
++7.572s reply
++7.572s usage
++8.801s reply
++8.801s usage
++10.175s reply
++10.175s usage
++11.511s reply
++11.511s usage
++12.699s reply
++12.699s usage
++13.769s reply
++13.769s usage
++15.29s reply
++15.29s usage
++16.382s reply
++16.382s usage
++20.066s reply
++20.066s usage
++12.296s call Glob glob discover
++12.305s result ok
++9.826s call Search grep discover
++9.833s result ok
++16.055s call Search grep discover
++16.061s result ok
++11.198s call Read read read
++11.201s result ok
++3.081s call Shell bash run
++3.179s result ok
++4.292s call Search grep discover
++4.294s result failed
++7.214s call Search grep discover
++7.223s result ok
++8.481s call Search grep discover
++8.487s result ok
++5.936s call Shell bash run
++5.973s result ok
++1.611s call Search grep discover
++1.836s result failed
++13.454s call Read read read
++13.455s result ok
++15.049s call Read read read
++15.05s result ok
