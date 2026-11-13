@@ -94,7 +94,7 @@ Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`. Every p
 
 ## Compatibility and limitations
 
-- `detect` and `parseSession` recognise a log by content signatures in the first 250 records, never the filename. It returns the log harnesses it recognises (`claude`, `codex`, `pi`), so `reader(agent)` takes any of them; `reader` itself doesn't detect, it reads the harness you name. A log that matches none, or more than one, is `unknown` with a warning, never Claude by default; so are logs from harnesses Parseltongue doesn't read yet, like Gemini CLI and Qwen Code.
+- `detect(raw)` says which harness wrote a log, from content signatures in the first 250 records, never the filename: `{ agent }` with `claude`, `codex` or `pi`, which `reader(agent)` takes, or `{ agent: 'unknown', warning }`. A log that matches none, or more than one, is `unknown`, never Claude by default; so are Gemini CLI and Qwen Code logs, which are recognised but not read yet, and the warning names them. `parseSession` uses `detect` and gives the same `agent` and warning; `reader` itself doesn't detect, it reads the harness you name.
 - Claude prompts exclude meta prompts, injected text and subagent lines from a parent's file. Codex excludes user text that opens with its own injected tags. pi excludes custom/system messages from prompts and keeps every branch's events.
 - Invalid JSON lines are skipped. pi reports counts and ancestry warnings; Claude/Codex do not provide per-line diagnostics. This is **not a JSONL validator**.
 - `reader(agent)` trusts the agent you name: syntactically valid JSON is not automatically a valid session record.

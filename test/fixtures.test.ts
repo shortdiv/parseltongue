@@ -24,7 +24,7 @@ describe('fixtures', () => {
       it(`${agent}/${name}: detection, text isolation, streaming and events`, async () => {
         const raw = readFileSync(fixture(agent, name), 'utf8')
         const { text, ...session } = parseSession(raw, { text: true })
-        expect(detect(raw)).toEqual([agent])
+        expect(detect(raw)).toEqual({ agent })
         expect(session.agent).toBe(agent)
         expect(session.warnings).toEqual([])
         expect(session.events.some(e => e.k === 'prompt' && text.has(e.id))).toBe(true)

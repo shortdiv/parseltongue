@@ -24,17 +24,6 @@ export function reader(agent: Harness, opts: { text?: boolean; id?: string } = {
   return readWith(agent, agent === 'codex' ? codex() : claude(), opts)
 }
 
-const NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'pi' }
-
-/** Which harness wrote a log, or why it's unknown. */
-function harnessOf(raw: string): { agent: LogHarness | 'unknown'; warning?: string } {
-  const found = detect(raw)
-  if (found.length > 1) return { agent: 'unknown', warning: `Ambiguous format: looks like ${found.map((f) => NAMES[f]).join(' and ')}` }
-  const [format] = found
-  if (format === undefined) return { agent: 'unknown', warning: 'Unrecognised format' }
-  return { agent: format }
-}
-
 /**
  * A session as a list of events, without its text. With { text: true }, also the
  * text behind your prompts and answers and the agent's replies and reasoning, by event id.
@@ -43,7 +32,7 @@ export function parseSession(raw: string): Session
 export function parseSession(raw: string, opts: { text: true }): Session & { text: SessionText }
 export function parseSession(raw: string, opts?: { text?: boolean }): Session & { text?: SessionText }
 export function parseSession(raw: string, opts: { text?: boolean } = {}): Session & { text?: SessionText } {
-  const { agent, warning } = harnessOf(raw)
+  const { agent, warning } = detect(raw)
   if (agent === 'unknown') {
     const session: Session = { agent, events: [], calls: {}, warnings: warning ? [warning] : [] }
     return opts.text ? { ...session, text: new Map() } : session

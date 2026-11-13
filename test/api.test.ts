@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSession, reader, type SessionEvent } from '../src/index.js'
+import { detect, parseSession, reader, type SessionEvent } from '../src/index.js'
 
 /**
  * The public API: one parse gives a text-free event list (always), and the text
@@ -65,15 +65,18 @@ describe('parseSession', () => {
 
   it('calls a log it can\'t place unknown, never Claude', () => {
     const pi = '{"type":"session","id":"p1","version":3}'
-    // Gemini CLI and Qwen Code logs look a little like Claude's, but aren't read.
+    // Gemini CLI and Qwen Code logs look a little like Claude's: they're named, but not read yet.
     const gemini = '{"sessionId":"g1","projectHash":"h","messages":[]}'
     const qwen = '{"type":"user","uuid":"u1","sessionId":"q1","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","parts":[{"text":"hi"}]}}'
     for (const [raw, warning] of [
       ['{"hello":"world"}', 'Unrecognised format'],
-      [gemini, 'Unrecognised format'],
-      [qwen, 'Unrecognised format'],
+      [gemini, 'Gemini CLI logs aren\'t supported yet'],
+      [qwen, 'Qwen Code logs aren\'t supported yet'],
       [`${pi}\n${RAW.split('\n')[0]}`, 'Ambiguous format: looks like pi and Claude Code'],
-    ]) expect(parseSession(raw!)).toEqual({ agent: 'unknown', events: [], calls: {}, warnings: [warning] })
+    ]) {
+      expect(detect(raw!)).toEqual({ agent: 'unknown', warning })
+      expect(parseSession(raw!)).toEqual({ agent: 'unknown', events: [], calls: {}, warnings: [warning] })
+    }
   })
 
   it('skips lines that are damaged or not JSON objects', () => {
