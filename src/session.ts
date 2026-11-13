@@ -17,11 +17,15 @@ type ReaderFor<H extends Harness, O> = (H extends 'pi' ? PiReader : Reader<Input
  */
 export function reader<H extends Harness, O extends Options<H> = {}>(agent: H, opts?: O): ReaderFor<H, O>
 export function reader(agent: Harness, opts: { text?: boolean; id?: string } = {}): Reader<any> {
-  if (agent === 'pi') return piReader(opts)
-  if (agent === 'opencode') return opencodeReader(opts)
-  if (agent === 'cursor') return cursorReader(opts)
-  if (agent === 'zed') return zedReader(opts)
-  return readWith(agent, agent === 'codex' ? codex() : claude(), opts)
+  switch (agent) {
+    case 'claude': return readWith(agent, claude(), opts)
+    case 'codex': return readWith(agent, codex(), opts)
+    case 'pi': return piReader(opts)
+    case 'opencode': return opencodeReader(opts)
+    case 'cursor': return cursorReader(opts)
+    case 'zed': return zedReader(opts)
+    default: throw new TypeError(`Unsupported agent: ${String(agent)}`)
+  }
 }
 
 /**

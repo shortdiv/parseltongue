@@ -21,6 +21,11 @@ const RAW = `
 `.trim()
 
 describe('parseSession', () => {
+  it('rejects unsupported agents instead of parsing them as Claude', () => {
+    const uncheckedReader = reader as (agent: string) => unknown
+    expect(() => uncheckedReader('gemini')).toThrow(new TypeError('Unsupported agent: gemini'))
+  })
+
   it('gives one time-ordered list of labelled events', () => {
     const s = parseSession(RAW)
     expect(s).toMatchObject({ id: 's1', agent: 'claude', cwd: '/work/app' })
