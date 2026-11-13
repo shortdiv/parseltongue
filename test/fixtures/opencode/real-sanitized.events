@@ -1,9 +1,9 @@
 cwd /work/sample
 +0s    prompt
 +1.893s reply
-+1.893s usage
++1.893s usage in 1587 out 165 cache read 3456 write 0
 +3.357s reply
-+3.357s usage
++3.357s usage in 5114 out 46 cache read 32 write 0
 +3.081s call Shell bash run
 +3.179s result ok
 +1.611s call Search grep discover

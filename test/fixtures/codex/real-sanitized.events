@@ -6,7 +6,7 @@ cwd /work/sample
 +2.088s think
 +3.721s reply
 +5.246s call Code exec run
-+5.291s usage
-+8.866s call Shell CommandExecution run
++5.291s usage in 4816 out 180 cache read 11904 write 0
++8.866s call Shell CommandExecution run within exec
 +8.866s result ok
 +8.891s result ok

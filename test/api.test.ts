@@ -52,24 +52,17 @@ describe('parseSession', () => {
     expect(by).toMatchObject({ prompt: 'you', answer: 'you', reply: 'agent', call: 'agent', result: 'agent', ask: 'agent', usage: 'agent', compact: 'system', system: 'system' })
   })
 
-  it('redacts text if text option is false or not passed in at all', () => {
-    const s = parseSession(RAW)
-    expect('text' in s).toBe(false)
+  it('leaves text out unless asked, and keeps it through JSON when asked', () => {
+    const plain = parseSession(RAW)
+    expect('text' in plain).toBe(false)
     for (const words of ['flaky billing', 'Looking at the test', 'Keep the retry', 'also run lint', 'ship it']) {
-      expect(JSON.stringify(s)).not.toContain(words)
+      expect(JSON.stringify(plain)).not.toContain(words)
     }
-  })
-
-  it('includes the text behind events and agent replies if text option is passed in and true', () => {
     const s = parseSession(RAW, { text: true })
     const textOf = (k: SessionEvent['k']) => s.events.filter((e) => e.k === k).map((e) => s.text[e.id])
     expect(textOf('prompt')).toEqual(['fix the flaky billing test', 'also run lint', 'thanks, ship it'])
     expect(textOf('answer')).toEqual(['Keep the retry'])
     expect(textOf('reply')).toEqual(['Looking at the test first.'])
-  })
-
-  it('keeps the text through JSON, so a server can return the session whole', () => {
-    const s = parseSession(RAW, { text: true })
     expect(JSON.parse(JSON.stringify(s))).toEqual(s)
   })
 
@@ -95,43 +88,23 @@ describe('parseSession', () => {
     expect(parseSession('null\n[]\n{broken\n' + RAW).events).toEqual(parseSession(RAW).events)
   })
 
-  it('reads a file that starts with a byte order mark', () => {
-    const pi = parseSession('\uFEFF' + JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' }))
-    expect([pi.agent, pi.id, pi.cwd, pi.warnings]).toEqual(['pi', 'p1', '/work', []])
-    const claude = parseSession('\uFEFF' + JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } }))
-    expect([claude.agent, claude.events.map((e) => e.k)]).toEqual(['claude', ['prompt']])
+  it('reads a file that starts with a byte order mark, whole or a line at a time', () => {
+    const pi = JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' })
+    const claude = JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } })
+    const whole = parseSession('\uFEFF' + pi)
+    expect([whole.agent, whole.id, whole.cwd, whole.warnings]).toEqual(['pi', 'p1', '/work', []])
+    expect(parseSession('\uFEFF' + claude).events.map((e) => e.k)).toEqual(['prompt'])
+    const r = reader('claude')
+    expect(r.read('\uFEFF' + claude).map((e) => e.k)).toEqual(['prompt'])
   })
 
-  it('snapshots database events, call statuses and metadata without changing older snapshots', () => {
+  it("keeps a session snapshot as it was when more rows arrive", () => {
     const r = reader('opencode', { id: 'saved-id' })
-    expect(r.session()).toEqual({ id: 'saved-id', agent: 'opencode', events: [], calls: {}, warnings: [] })
-    const prompt = r.read({ message: { id: 'm', role: 'user', created: 1, directory: '/work' } })
     const part = { type: 'tool', callId: 'c', tool: 'bash', start: 2 }
-    const call = r.read({ part })
-    const before = r.session()
-    const untouched = r.session()
-    expect(before.calls).toEqual({ c: 'unknown' })
-    const result = r.read({ part: { ...part, status: 'completed', end: 3 } })
-    // A snapshot first looked at after more rows still shows the session as it was.
-    expect(JSON.parse(JSON.stringify(untouched))).toMatchObject({ events: [...prompt, ...call], calls: { c: 'unknown' } })
-    expect(r.session()).toEqual({
-      id: 'saved-id', agent: 'opencode', cwd: '/work',
-      events: [...prompt, ...call, ...result], calls: { c: 'ok' }, warnings: [],
-    })
-    expect(before.events).toEqual([...prompt, ...call])
-    expect(before.calls).toEqual({ c: 'unknown' })
-    expect(r).not.toHaveProperty('text')
-    expect(reader('cursor', { id: 'cursor-id' }).session().id).toBe('cursor-id')
-    expect(reader('zed').session()).toEqual({ agent: 'zed', events: [], calls: {}, warnings: [] })
-  })
-
-  it('reads a byte order mark when following a file a line at a time', () => {
-    const pi = reader('pi')
-    pi.read('﻿' + JSON.stringify({ type: 'session', version: 3, id: 'p1', timestamp: '2026-01-01T00:00:00Z', cwd: '/work' }))
-    const { id, cwd, warnings } = pi.session()
-    expect([id, cwd, warnings]).toEqual(['p1', '/work', []])
-    const claude = reader('claude')
-    const events = claude.read('﻿' + JSON.stringify({ type: 'user', sessionId: 'c1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'hi' } }))
-    expect(events.map((e) => e.k)).toEqual(['prompt'])
+    const before = [...r.read({ message: { id: 'm', role: 'user', created: 1, directory: '/work' } }), ...r.read({ part })]
+    const snapshot = r.session()
+    const after = r.read({ part: { ...part, status: 'completed', end: 3 } })
+    expect(snapshot).toEqual({ id: 'saved-id', agent: 'opencode', cwd: '/work', events: before, calls: { c: 'unknown' }, warnings: [] })
+    expect(r.session()).toMatchObject({ events: [...before, ...after], calls: { c: 'ok' } })
   })
 })

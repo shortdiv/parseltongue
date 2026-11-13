@@ -1,6 +1,6 @@
 cwd /work/sample
 +0s    prompt
 +1.909s think
-+1.909s usage
++1.909s usage in 10 out 181 cache read 0 write 20581
 +2.106s call Other unknown_tool other
 +2.111s result ok

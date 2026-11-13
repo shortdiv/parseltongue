@@ -4,9 +4,9 @@ cwd /work/sample
 +12.807s system message:system context
 +12.808s prompt
 +15.658s call Read read read /work/sample/file.txt
-+15.658s usage
++15.658s usage in 2041 out 39 cache read 0 write 0
 +15.664s result ok
 +20.328s reply
 +20.328s call Shell bash run
-+20.328s usage
++20.328s usage in 1652 out 98 cache read 1920 write 0
 +20.393s result ok
