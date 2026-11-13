@@ -108,7 +108,7 @@ Rows change in place, so pass a row again whenever it changes: with its id (`cal
 
 ## Public API
 
-Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`, plus the `FormatError` class. Every public type is exported from [`src/types.ts`](src/types.ts); everything else is internal.
+Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`, plus the `FormatError` class. **[API.md](API.md) is the full reference:** every function, type and event field. Every public type is exported from [`src/types.ts`](src/types.ts); everything else is internal.
 
 ## Compatibility and limitations
 

@@ -7,11 +7,10 @@ const CODEX_ITEMS = ['message', 'function_call', 'custom_tool_call', 'function_c
 
 /** Harnesses detected but not read yet: their logs are unknown, with a warning that names them. */
 const UNSUPPORTED = { gemini: 'Gemini CLI', qwen: 'Qwen Code' } as const
-const NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', ...UNSUPPORTED }
-type Signature = keyof typeof NAMES
+const NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', ...UNSUPPORTED } satisfies Record<DetectedFormat, string>
 
 /** Every signature in a log's first 250 records: one JSON document (older Gemini exports) or JSON lines. */
-function signatures(raw: string): Signature[] {
+function signatures(raw: string): DetectedFormat[] {
   raw = raw.replace(/^\uFEFF/, '')
   const records: unknown[] = []
   try {
@@ -27,7 +26,7 @@ function signatures(raw: string): Signature[] {
       }
     }
   }
-  const found = new Set<Signature>()
+  const found = new Set<DetectedFormat>()
   for (const record of records) {
     const l = object(record)
     const m = object(l.message)
@@ -45,7 +44,7 @@ function signatures(raw: string): Signature[] {
 /** Why a log's harness is unknown: no signature, several, or a harness that isn't read yet. */
 export type FormatCode = 'unrecognised_format' | 'ambiguous_format' | 'unsupported_format'
 /** A format detect can name: a harness it reads, or one it recognises but doesn't read yet. */
-export type DetectedFormat = Signature
+export type DetectedFormat = LogHarness | 'gemini' | 'qwen'
 
 /** Which harness wrote a log: one parseSession and reader read, or unknown with a code and the formats it saw. */
 export type Detection =
