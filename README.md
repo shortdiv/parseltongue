@@ -4,7 +4,7 @@
 
 Zero-runtime-dependency, browser-safe TypeScript parsers for coding-agent sessions. The **session API reads Claude Code, Codex and pi logs, and opencode, Cursor and Zed database rows**, into one text-free list of events. Viewers and analytics tools can share its format knowledge instead of each writing their own.
 
-**Status:** unreleased. The session API is tested on synthetic fixtures and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions. The unscoped npm name `parseltongue` is already taken by an unrelated S-expression parser.
+**Status:** unreleased. The session API is tested on synthetic fixtures and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions.
 
 ## Scope
 
