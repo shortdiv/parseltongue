@@ -87,8 +87,12 @@ const isWebItem = (it: { type?: string; kind?: string } | undefined) =>
 
 type Outcome = 'ok' | 'failed' | 'declined'
 
-/** An MCP call's name in Claude's form, mcp__server__tool, unless Codex already gave it as server.tool. */
-const mcpName = (server?: string, tool?: string) => (tool?.includes('.') ? tool : ['mcp', server, tool].filter(Boolean).join('__'))
+/**
+ * An MCP call's name in Claude's form, mcp__server__tool. Without a server, a dotted tool
+ * is already Codex's server.tool; with one, the server is kept even if the tool has dots.
+ */
+const mcpName = (server?: string, tool?: string) =>
+  !server && tool?.includes('.') ? tool : ['mcp', server, tool].filter(Boolean).join('__')
 
 /** Tags Codex wraps the context it injects in. Newer ones are snake_case, like most of these. */
 const INJECTED_TAGS = new Set(['environment_context', 'user_instructions', 'skill', 'recommended_plugins', 'turn_aborted', 'system_instruction', 'codex_internal_context', 'user_action'])

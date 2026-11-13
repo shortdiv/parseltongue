@@ -294,11 +294,15 @@ describe('codex', () => {
       cx('event_msg', { type: 'mcp_tool_call_end', call_id: 'a', invocation: { server: 'linear', tool: 'save_issue' }, result: { Ok: {} } }),
       cx('event_msg', { type: 'mcp_tool_call_end', call_id: 'b', result: { Err: 'down' } }),
       cx('event_msg', { type: 'item_completed', item: { id: 'c', type: 'McpToolCall', server: 'notion', tool: 'search', status: 'completed' } }),
+      cx('event_msg', { type: 'mcp_tool_call_end', call_id: 'd', invocation: { server: 'my-server', tool: 'my.tool' }, result: { Ok: {} } }),
+      cx('event_msg', { type: 'mcp_tool_call_end', call_id: 'e', invocation: { tool: 'plugin.search' }, result: { Ok: {} } }),
     ])
     expect(only(events, 'call').map((e) => [e.name, e.tool, e.kind])).toEqual([
       ['mcp__linear__save_issue', 'Mcp', 'mcp'], ['mcp', 'Mcp', 'mcp'], ['mcp__notion__search', 'Mcp', 'mcp'],
+      // A dotted tool keeps its server when Codex gives one, and stays server.tool when it doesn't.
+      ['mcp__my-server__my.tool', 'Mcp', 'mcp'], ['plugin.search', 'Mcp', 'mcp'],
     ])
-    expect(outcomes(events)).toEqual({ a: 'ok', b: 'failed', c: 'ok' })
+    expect(outcomes(events)).toEqual({ a: 'ok', b: 'failed', c: 'ok', d: 'ok', e: 'ok' })
   })
 
   it('counts each response\'s tokens once, from its usage record when the log has them', () => {
