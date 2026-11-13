@@ -4,7 +4,7 @@
 
 Zero-runtime-dependency, browser-safe TypeScript parsers for coding-agent sessions. It **reads Claude Code, Codex and pi logs, and opencode, Cursor and Zed database rows** into one text-free list of events. Viewers and analytics tools can share its format knowledge instead of each writing their own.
 
-**Status:** unreleased. It is tested on synthetic fixtures and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions.
+**Status:** unreleased. It is tested on synthetic records and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions.
 
 ## Scope
 
@@ -118,7 +118,7 @@ pnpm check:package
 
 `check:package` builds and packs the library, installs that tarball into an isolated temporary consumer, checks its public ESM API and TypeScript declarations without Node types, and checks the publication allowlist. Runtime compilation also excludes all Node types.
 
-Fixtures include synthetic logs and tiny, privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions, with every prompt, path, id and output replaced. Original sessions and private corpora remain outside the repository. Tests and fixtures are not shipped in the npm tarball. Compiled source maps contain parser source, not transcripts.
+Fixtures are tiny, privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions, with every prompt, path, id and output replaced. Original sessions and private corpora remain outside the repository. Tests and fixtures are not shipped in the npm tarball. Compiled source maps contain parser source, not transcripts.
 
 ## Release
 

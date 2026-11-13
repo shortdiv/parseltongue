@@ -641,6 +641,7 @@ describe('shellKind', () => {
     ['mkdir -p src/lib && touch src/lib/index.ts', 'edit', ['src/lib', 'src/lib/index.ts']],
     ["apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: src/a.ts\n@@\n-x\n+y\n*** End Patch\nEOF", 'edit', ['src/a.ts']],
     ['pnpm build > build.log 2>&1', 'edit', ['build.log']],
+    ['rm -rf dist', 'edit', []],
     // review
     ['git status --short && git diff --stat', 'review', []],
     ['git -C repo log --oneline -5', 'review', []],

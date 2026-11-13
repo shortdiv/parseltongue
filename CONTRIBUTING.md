@@ -10,14 +10,14 @@ Run `pnpm install`, `pnpm typecheck`, `pnpm test`, and `pnpm check:package` from
 - Preserve native IDs, append order, and branch provenance. Do not merge unrelated branches into an invented conversation.
 - Distinguish unknown outcomes from success/failure. Never invent tool results.
 - Keep event shapes and labels stable. A change to them is a breaking change: note it in the changelog and update the `.events` snapshots.
-- Add fixtures for the specific format version/event shape being supported.
+- Test a new format or event shape with a few inline records in `test/agents.test.ts`.
 - Do not add text or other sensitive content to the text-free events.
 
 ## Fixtures and privacy
 
-Use small **synthetic** logs with invented prompts, paths, IDs, outputs, and credentials. Do not copy local agent history, real client work, or a "sanitized" transcript without a deliberate privacy review. Each fixture is a `.jsonl` file with an `.events` snapshot next to it; `vitest -u` writes a new fixture's snapshot, and you review it like code. The `real-sanitized` fixtures are privacy-reviewed excerpts of real sessions (Claude Code, Codex, pi, opencode, Cursor); every other fixture is synthetic. Publication uses an allowlist excluding all tests/fixtures.
+Tests use **synthetic** records with invented prompts, paths, IDs, outputs, and credentials, written inline in the tests. Do not copy local agent history, real client work, or a "sanitized" transcript without a deliberate privacy review.
 
-Regenerate this package's `.events` snapshots with `pnpm exec vitest run -u` and review the diffs.
+The only fixture files are one `real-sanitized.jsonl` per harness: a few records of a real session, privacy-reviewed, with every prompt, path, id and output replaced. Each has an `.events` snapshot next to it; regenerate them with `pnpm exec vitest run -u` and review the diff like code. Publication uses an allowlist excluding all tests and fixtures.
 
 ## Licensing
 
