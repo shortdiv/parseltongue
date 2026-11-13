@@ -1,6 +1,6 @@
 import { claude } from './claude.js'
 import { codex } from './codex.js'
-import { detect } from './detect.js'
+import { detect, FormatError } from './detect.js'
 import { readWith, type Harness, type LogHarness, type Reader, type Session, type SessionText } from './events.js'
 import { opencodeReader, cursorReader, zedReader, type OpencodeRow, type CursorBubble, type ZedThread } from './rows.js'
 import { piReader, type PiReader } from './pi.js'
@@ -27,17 +27,15 @@ export function reader(agent: Harness, opts: { text?: boolean; id?: string } = {
 /**
  * A session as a list of events, without its text. With { text: true }, also the
  * text behind your prompts and answers and the agent's replies and reasoning, by event id.
+ * Throws a FormatError when the log's harness is unknown; detect says so without throwing.
  */
 export function parseSession(raw: string): Session
 export function parseSession(raw: string, opts: { text: true }): Session & { text: SessionText }
 export function parseSession(raw: string, opts?: { text?: boolean }): Session & { text?: SessionText }
 export function parseSession(raw: string, opts: { text?: boolean } = {}): Session & { text?: SessionText } {
-  const { agent, warning } = detect(raw)
-  if (agent === 'unknown') {
-    const session: Session = { agent, events: [], calls: {}, warnings: warning ? [warning] : [] }
-    return opts.text ? { ...session, text: new Map() } : session
-  }
-  const r = reader(agent, opts)
+  const found = detect(raw)
+  if (found.agent === 'unknown') throw new FormatError(found)
+  const r = reader(found.agent, opts)
   for (const line of raw.split('\n')) r.read(line)
   return r.text ? { ...r.session(), text: r.text } : r.session()
 }

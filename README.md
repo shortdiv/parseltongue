@@ -2,19 +2,19 @@
 
 `@shortdiv/parseltongue` — speak session transcripts.
 
-Zero-runtime-dependency, browser-safe TypeScript parsers for coding-agent sessions. The **session API reads Claude Code, Codex and pi logs, and opencode, Cursor and Zed database rows**, into one text-free list of events. Viewers and analytics tools can share its format knowledge instead of each writing their own.
+Zero-runtime-dependency, browser-safe TypeScript parsers for coding-agent sessions. It **reads Claude Code, Codex and pi logs, and opencode, Cursor and Zed database rows** into one text-free list of events. Viewers and analytics tools can share its format knowledge instead of each writing their own.
 
-**Status:** unreleased. The session API is tested on synthetic fixtures and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions.
+**Status:** unreleased. It is tested on synthetic fixtures and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions.
 
 ## Scope
 
 - Accept transcript strings, individual JSONL lines, or database rows you read yourself; no filesystem or database access.
-- Turn each session into a time-ordered, text-free list of events, with the text available on request.
+- Turn each session into a text-free list of events in log order, with the text available on request.
 - Read a log a line at a time, pairing each tool call with its result.
 - Preserve pi entry topology, fork metadata, and incomplete-ancestry diagnostics.
 - No Node APIs, network, storage, UI, billing, scoring models, or classifier dependencies at runtime.
 
-**The session API is analytics-oriented:** its events never hold tool arguments, results or unknown payloads, and text (prompts, answers, replies, reasoning) is returned only when asked for. It does not promise agent-context replay.
+**It's analytics-oriented:** its events never hold tool arguments, results or unknown payloads, and text (prompts, answers, replies, reasoning) is returned only when asked for. It does not promise agent-context replay.
 
 ## Parse a session
 
@@ -22,12 +22,15 @@ Zero-runtime-dependency, browser-safe TypeScript parsers for coding-agent sessio
 import { parseSession } from '@shortdiv/parseltongue'
 
 const session = parseSession(rawJsonl)   // Claude Code, Codex or pi, detected from its content
-session.events                           // SessionEvent[]: time-ordered and text-free
+session.agent                            // 'claude', 'codex' or 'pi'; a log it can't read throws a FormatError
+session.events                           // SessionEvent[]: text-free, in the order the log has them
 session.calls                            // each call's final status, by call id
 
 const { text } = parseSession(rawJsonl, { text: true })
-text.get(session.events[0].id)           // the text behind an event, by event id
+text[session.events[0].id]               // the text behind an event, by event id; a plain object, so JSON keeps it
 ```
+
+Events come in the order the log has them, not sorted by time: `at` can step backwards (opencode stamps a reply when it finished, pi appends branches one after another), so sort by `at` yourself if you need time order.
 
 Every event has an `id`, a timestamp `at`, who produced it (`by`: `you`, `agent` or `system`) and a label `k`:
 
@@ -90,11 +93,11 @@ Rows change in place, so pass a row again whenever it changes: with its id (`cal
 
 ## Public API
 
-Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`. Every public type is exported from [`src/types.ts`](src/types.ts); everything else is internal.
+Functions: `parseSession`, `reader`, `detect` and `isInjectedCodexText`, plus the `FormatError` class. Every public type is exported from [`src/types.ts`](src/types.ts); everything else is internal.
 
 ## Compatibility and limitations
 
-- `detect(raw)` says which harness wrote a log, from content signatures in the first 250 records, never the filename: `{ agent }` with `claude`, `codex` or `pi`, which `reader(agent)` takes, or `{ agent: 'unknown', warning }`. A log that matches none, or more than one, is `unknown`, never Claude by default; so are Gemini CLI and Qwen Code logs, which are recognised but not read yet, and the warning names them. `parseSession` uses `detect` and gives the same `agent` and warning; `reader` itself doesn't detect, it reads the harness you name.
+- `detect(raw)` says which harness wrote a log, from content signatures in the first 250 records, never the filename: `{ agent }` with `claude`, `codex` or `pi`, which `reader(agent)` takes, or `{ agent: 'unknown', code, formats, message }`. The code is `unrecognised_format` (no signature), `ambiguous_format` (several) or `unsupported_format` (Gemini CLI and Qwen Code, recognised but not read yet), and `formats` lists what was seen; a log is never Claude by default. `parseSession` throws a `FormatError` with the same `code`, `formats` and `message`, so call `detect` first if you'd rather not catch; `reader` itself doesn't detect, it reads the harness you name.
 - Claude prompts exclude meta prompts, injected text and subagent lines from a parent's file. Codex excludes user text that opens with its own injected tags. pi excludes custom/system messages from prompts and keeps every branch's events.
 - Invalid JSON lines are skipped. pi reports counts and ancestry warnings; Claude/Codex do not provide per-line diagnostics. This is **not a JSONL validator**.
 - `reader(agent)` trusts the agent you name: syntactically valid JSON is not automatically a valid session record.

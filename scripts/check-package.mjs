@@ -44,7 +44,7 @@ const raw = JSON.stringify({ type: 'session', version: 3, id: 'package-test', cw
 assert.equal(parser.parseSession(raw).id, 'package-test')
 assert.equal(parser.parseSession(raw).agent, 'pi')
 assert.equal(parser.reader('pi').entries.size, 0)
-assert.deepEqual(Object.keys(parser).sort(), ['detect', 'isInjectedCodexText', 'parseSession', 'reader'])
+assert.deepEqual(Object.keys(parser).sort(), ['FormatError', 'detect', 'isInjectedCodexText', 'parseSession', 'reader'])
 `)
   run(process.execPath, ['check.mjs'])
 
@@ -64,11 +64,11 @@ const snapshot: Session = opencode.session()
 // Text is typed only when it was asked for.
 const flag = Math.random() > 0.5
 const maybe = parseSession('', { text: flag })
-maybe.text?.size
+Object.keys(maybe.text ?? {})
 parseSession('', {})
-reader('codex', { text: true }).text.size
-reader('pi', { text: true }).text.size
-reader('claude', { text: flag }).text?.size
+Object.keys(reader('codex', { text: true }).text)
+Object.keys(reader('pi', { text: true }).text)
+Object.keys(reader('claude', { text: flag }).text ?? {})
 // @ts-expect-error Without { text: true }, a reader has no text.
 reader('claude').text
 // @ts-expect-error Database readers take rows, not log lines.

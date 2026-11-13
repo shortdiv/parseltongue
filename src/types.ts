@@ -2,7 +2,7 @@
 export type { Session, Harness, LogHarness, SessionEvent, SessionText, SessionInfo, Reader, TextReader, By, Status, Tag } from './events.js'
 export type { PiReader, PiEntry, PiMetadata } from './pi.js'
 export type { OpencodeMessage, OpencodePart, OpencodeRow, CursorBubble, ZedThread } from './rows.js'
-export type { Detection } from './detect.js'
+export type { Detection, DetectedFormat, FormatCode } from './detect.js'
 export type { Kind, Tool } from './kinds.js'
 
 export interface TokenCounts {

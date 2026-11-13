@@ -1,6 +1,7 @@
 import { callDraft, isAskTool } from './commands.js'
 import { blockText, type Adapter, type Draft, type Status } from './events.js'
 import { reworks, ReworkTracker, type Edit } from './rework.js'
+import type { TokenCounts } from './types.js'
 import { parseISO } from './util.js'
 
 /**
@@ -116,7 +117,8 @@ const SYSTEM_LOGS = new Set(['informational', 'local_command', 'stop_hook_summar
 
 export function claude(): Adapter {
   const info: Adapter['info'] = {}
-  const messages = new Set<string>()
+  /** Usage already counted for each message id. */
+  const counted = new Map<string, TokenCounts>()
   const calls = new Set<string>()
   /** Calls waiting for their result, with the edits they'd make. */
   const open = new Map<string, Edit[]>()
@@ -198,16 +200,17 @@ export function claude(): Adapter {
         }
       }
 
-      // One response is logged across several lines that repeat the same usage, so count each message once.
+      // One response is logged across several lines that repeat its usage, and the counts can
+      // grow as it streams. Events never change, so a repeat adds only what grew since the last.
       const msg = l.message
-      if (l.type === 'assistant' && own && msg?.usage && !(msg.id && messages.has(msg.id))) {
-        if (msg.id) messages.add(msg.id)
+      if (l.type === 'assistant' && own && msg?.usage) {
         if (msg.model && !msg.model.startsWith('<')) info.model = msg.model
         const u = msg.usage
-        events.push({
-          at, by: 'agent', k: 'usage',
-          tokens: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 },
-        })
+        const now: TokenCounts = { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 }
+        const before = msg.id ? counted.get(msg.id) : undefined
+        if (msg.id) counted.set(msg.id, before ? max(before, now) : now)
+        const grew = before ? less(now, before) : now
+        if (!before || Object.values(grew).some((n) => n > 0)) events.push({ at, by: 'agent', k: 'usage', tokens: grew })
       }
       return { at, events }
     },
@@ -223,3 +226,8 @@ export function claude(): Adapter {
     }),
   }
 }
+
+const max = (a: TokenCounts, b: TokenCounts): TokenCounts =>
+  ({ input: Math.max(a.input, b.input), output: Math.max(a.output, b.output), cacheRead: Math.max(a.cacheRead, b.cacheRead), cacheWrite: Math.max(a.cacheWrite, b.cacheWrite) })
+const less = (a: TokenCounts, b: TokenCounts): TokenCounts =>
+  ({ input: Math.max(0, a.input - b.input), output: Math.max(0, a.output - b.output), cacheRead: Math.max(0, a.cacheRead - b.cacheRead), cacheWrite: Math.max(0, a.cacheWrite - b.cacheWrite) })

@@ -69,6 +69,15 @@ describe('claude code', () => {
     expect(parent.events.map(label)).toEqual(['prompt', 'system subagent', 'system subagent', 'system subagent', 'system subagent'])
   })
 
+  it('counts a response once across its lines, keeping usage that grew as it streamed', () => {
+    const part = (output: number) => ({ type: 'assistant', timestamp: at(), message: { id: 'm', content: [], usage: { input_tokens: 10, output_tokens: output } } })
+    const { events } = read('claude', [part(8), part(8), part(412)])
+    expect(only(events, 'usage').map((e) => e.tokens)).toEqual([
+      { input: 10, output: 8, cacheRead: 0, cacheWrite: 0 },
+      { input: 0, output: 404, cacheRead: 0, cacheWrite: 0 },
+    ])
+  })
+
   it('excludes inline subagent usage and model changes, but keeps them in the subagent file', () => {
     const child = {
       type: 'assistant', timestamp: at(), sessionId: 'parent', isSidechain: true, agentId: 'child',
@@ -95,7 +104,7 @@ describe('claude code', () => {
       prompt('continue'),
     ])
     expect(events.map(label)).toEqual(['reply', 'prompt', 'call Read', 'result ok', 'prompt'])
-    expect([...text.values()]).toEqual(['kept', 'hello', 'continue'])
+    expect(Object.values(text)).toEqual(['kept', 'hello', 'continue'])
   })
 
   it('keeps a question you declined', () => {
@@ -134,7 +143,7 @@ describe('claude code', () => {
     ].map((l) => JSON.stringify(l)).join('\n')
     const s = parseSession(raw, { text: true })
     const typed = s.events.filter((e) => e.k === 'prompt' || e.k === 'shell')
-    expect(typed.map((e) => (e.k === 'prompt' ? s.text.get(e.id) : e.k))).toEqual(['fix the build', 'shell', 'still broken', 'thanks'])
+    expect(typed.map((e) => (e.k === 'prompt' ? s.text[e.id] : e.k))).toEqual(['fix the build', 'shell', 'still broken', 'thanks'])
     expect(s.events.filter((e) => e.k === 'system').map((e) => e.k === 'system' && `${e.what} ${e.tag}`)).toEqual([
       'user:task-notification context', 'user:compact-summary context', 'user:other context', 'attachment:queued_command context',
     ])
@@ -234,7 +243,7 @@ describe('codex', () => {
       user(text('<image name=[Image #1]>'), { type: 'input_image', image_url: 'data:' }, text('</image>'), text('what is wrong here?')),
       user(text('<user_shell_command>\n<command>\ngit status\n</command>\n<result>\nclean\n</result>\n</user_shell_command>')),
     ])
-    expect(events.map((e) => [label(e), words.get(e.id)])).toEqual([
+    expect(events.map((e) => [label(e), words[e.id]])).toEqual([
       ['system response_item:message:user', undefined],
       ['prompt', "<div> isn't centering"],
       ['prompt', 'what is wrong here?'],
@@ -278,6 +287,18 @@ describe('codex', () => {
       ['s1', undefined], ['a', 's1'], ['b', undefined], ['s2', undefined], ['c', 's2'], ['d', undefined],
     ])
     expect([calls.s1, calls.s2]).toEqual(['unknown', 'unknown'])
+  })
+
+  it('reads MCP calls a code-mode script ran as Mcp', () => {
+    const { events } = read('codex', [
+      cx('event_msg', { type: 'mcp_tool_call_end', call_id: 'a', invocation: { server: 'linear', tool: 'save_issue' }, result: { Ok: {} } }),
+      cx('event_msg', { type: 'mcp_tool_call_end', call_id: 'b', result: { Err: 'down' } }),
+      cx('event_msg', { type: 'item_completed', item: { id: 'c', type: 'McpToolCall', server: 'notion', tool: 'search', status: 'completed' } }),
+    ])
+    expect(only(events, 'call').map((e) => [e.name, e.tool, e.kind])).toEqual([
+      ['mcp__linear__save_issue', 'Mcp', 'mcp'], ['mcp', 'Mcp', 'mcp'], ['mcp__notion__search', 'Mcp', 'mcp'],
+    ])
+    expect(outcomes(events)).toEqual({ a: 'ok', b: 'failed', c: 'ok' })
   })
 
   it('counts each response\'s tokens once, from its usage record when the log has them', () => {
@@ -443,7 +464,8 @@ describe('pi', () => {
       'shell', 'prompt', 'call bash', 'result interrupted', 'interrupt', 'usage', 'call read', 'result unknown', 'usage',
     ])
     expect(r.diagnostics.orphanResults).toBe(1)
-    expect(JSON.stringify([events, [...r.text]])).not.toMatch(/provider unavailable|not retained/)
+    expect(r.session().warnings).toContain('1 tool results without a matching call skipped')
+    expect(JSON.stringify([events, r.text])).not.toMatch(/provider unavailable|not retained/)
   })
 
   it('tolerates duplicates, damaged lines, older linear logs and broken trees', () => {
@@ -455,6 +477,7 @@ describe('pi', () => {
     expect(more.flatMap((l) => r.read(l))).toEqual([])
     expect(outcomes(events)).toEqual({ unmatched: 'unknown' })
     expect(r.diagnostics).toMatchObject({ duplicateEntries: 1, malformedLines: 1, ignoredLines: 5 })
+    expect(r.session().warnings).toContain('1 duplicate entries skipped')
 
     const linear = reader('pi')
     for (const l of [
@@ -573,13 +596,21 @@ describe('cursor', () => {
 })
 
 describe('zed', () => {
-  it('reads each update as agent activity, in the first folder', () => {
+  it('reads each update as a system event, in the first folder', () => {
     const r = reader('zed')
     const events = [
       ...r.read({ updatedAt: '2026-01-01T00:00:00Z', folders: '["/work/app","/work/lib"]' }),
       ...r.read({ updatedAt: '2026-01-01T00:01:00Z', folders: '/other' }),
     ]
-    expect(events.map((e) => [e.by, label(e)])).toEqual([['agent', 'system thread_updated'], ['agent', 'system thread_updated']])
+    expect(events.map((e) => [e.by, label(e)])).toEqual([['system', 'system thread_updated'], ['system', 'system thread_updated']])
+    expect(r.session().cwd).toBe('/work/app')
+  })
+
+  it('waits for a real folder when the list is empty', () => {
+    const r = reader('zed')
+    r.read({ updatedAt: '2026-01-01T00:00:00Z', folders: '[]' })
+    expect(r.session().cwd).toBeUndefined()
+    r.read({ updatedAt: '2026-01-01T00:01:00Z', folders: '["/work/app"]' })
     expect(r.session().cwd).toBe('/work/app')
   })
 

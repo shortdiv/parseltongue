@@ -42,23 +42,39 @@ function signatures(raw: string): Signature[] {
   return [...found]
 }
 
-/** Which harness wrote a log: one parseSession and reader read, or unknown with the reason. */
-export interface Detection {
-  agent: LogHarness | 'unknown'
-  warning?: string
+/** Why a log's harness is unknown: no signature, several, or a harness that isn't read yet. */
+export type FormatCode = 'unrecognised_format' | 'ambiguous_format' | 'unsupported_format'
+/** A format detect can name: a harness it reads, or one it recognises but doesn't read yet. */
+export type DetectedFormat = Signature
+
+/** Which harness wrote a log: one parseSession and reader read, or unknown with a code and the formats it saw. */
+export type Detection =
+  | { agent: LogHarness }
+  | { agent: 'unknown'; code: FormatCode; formats: DetectedFormat[]; message: string }
+
+/** parseSession's error for a log it can't read; the same code, formats and message detect returns. */
+export class FormatError extends Error {
+  override name = 'FormatError'
+  readonly code: FormatCode
+  readonly formats: DetectedFormat[]
+  constructor({ code, formats, message }: Extract<Detection, { agent: 'unknown' }>) {
+    super(message)
+    this.code = code
+    this.formats = formats
+  }
 }
 
 /**
  * Which harness wrote a log, from the signatures in its first 250 records: its content,
  * never filenames or model names. A log that matches none, several, or a harness that
- * isn't read yet is unknown, with a warning that says which.
+ * isn't read yet is unknown, with a code that says which.
  * Only logs are detected: database rows come from a database you already know.
  */
 export function detect(raw: string): Detection {
-  const found = signatures(raw)
-  if (found.length > 1) return { agent: 'unknown', warning: `Ambiguous format: looks like ${found.map((f) => NAMES[f]).join(' and ')}` }
-  const [format] = found
-  if (format === undefined) return { agent: 'unknown', warning: 'Unrecognised format' }
-  if (format in UNSUPPORTED) return { agent: 'unknown', warning: `${NAMES[format]} logs aren't supported yet` }
-  return { agent: format as LogHarness }
+  const formats = signatures(raw)
+  const [format] = formats
+  if (formats.length > 1) return { agent: 'unknown', code: 'ambiguous_format', formats, message: `Ambiguous format: looks like ${formats.map((f) => NAMES[f]).join(' and ')}` }
+  if (format === undefined) return { agent: 'unknown', code: 'unrecognised_format', formats, message: 'Unrecognised format' }
+  if (format === 'gemini' || format === 'qwen') return { agent: 'unknown', code: 'unsupported_format', formats, message: `${NAMES[format]} logs aren't supported yet` }
+  return { agent: format }
 }

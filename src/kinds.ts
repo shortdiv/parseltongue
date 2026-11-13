@@ -34,7 +34,7 @@ const TOOLS: Record<string, Tool> = {
   task: 'Task', agent: 'Task', spawn_agent: 'Task', wait_agent: 'Task', send_message: 'Task',
   followup_task: 'Task', list_agents: 'Task', taskstop: 'Task',
   askuserquestion: 'Question', request_user_input: 'Question', resolve_open_questions: 'Question',
-  mcptoolcall: 'Mcp', list_mcp_resources: 'Mcp', list_mcp_resource_templates: 'Mcp',
+  mcp: 'Mcp', mcptoolcall: 'Mcp', list_mcp_resources: 'Mcp', list_mcp_resource_templates: 'Mcp',
 }
 
 /** A tool's kind when the call itself says no more; a Shell call's kind comes from its command. */

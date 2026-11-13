@@ -56,8 +56,12 @@ export type SessionEvent = { id: string; at: number; by: By } & (
     }
 )
 
-/** The text behind prompt, answer, reply and think events, by event id. */
-export type SessionText = Map<string, string>
+/**
+ * The text behind prompt, answer, reply and think events, by event id: a plain object,
+ * so it survives JSON. Event ids count up within a session; across sessions, key by
+ * the session's id and the event's.
+ */
+export type SessionText = Record<string, string>
 
 /** What a log says about its session, learned as lines are read. */
 export interface SessionInfo {
@@ -76,7 +80,8 @@ export type Harness = 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor' | 'zed'
 export type LogHarness = Extract<Harness, 'claude' | 'codex' | 'pi'>
 
 export interface Session extends SessionInfo {
-  agent: Harness | 'unknown'
+  agent: Harness
+  /** In the order the log has them, not sorted: `at` can step backwards, e.g. between pi branches. */
   events: SessionEvent[]
   /** Each call's final status, by call id: its result's, or unknown without one. */
   calls: Record<string, Status>
@@ -135,34 +140,46 @@ export function sequence() {
     const { text: words, ...rest } = draft
     const event = { id: String(++n), ...rest } as Record<string, unknown>
     for (const k of Object.keys(event)) if (event[k] === undefined) delete event[k]
-    if (words && text) text.set(event.id as string, words)
+    if (words && text) text[event.id as string] = words
     return event as SessionEvent
   }
 }
 
-/** Keeps emitted events and builds a fresh session snapshot on demand. */
+/**
+ * Keeps emitted events and call statuses as they're read. A snapshot copies its
+ * events and calls only when they're first used, so taking one after every line stays cheap.
+ */
 export function withSession<In>(agent: Harness, source: Source<In>): Reader<In> {
   const events: SessionEvent[] = []
+  const calls: Record<string, Status> = Object.create(null)
   return {
     read(input) {
       const added = source.read(input)
-      events.push(...added)
+      for (const e of added) {
+        events.push(e)
+        settle(calls, e)
+      }
       return added
     },
     session() {
-      const session: Session = {
-        ...source.info, agent,
-        events: [...events], calls: outcomes(events), warnings: [...source.warnings()],
-      }
+      const n = events.length
+      let seen: SessionEvent[] | undefined
+      let statuses: Record<string, Status> | undefined
+      const session = { ...source.info, agent } as Session
       for (const k of Object.keys(session) as (keyof Session)[]) if (session[k] === undefined) delete session[k]
-      return session
+      return Object.defineProperties(session, {
+        events: { enumerable: true, get: () => (seen ??= events.slice(0, n)) },
+        // Later results change statuses, so a snapshot taken before them recounts its own events.
+        calls: { enumerable: true, get: () => (statuses ??= events.length === n ? { ...calls } : outcomes(events.slice(0, n))) },
+        warnings: { enumerable: true, value: [...source.warnings()] },
+      })
     },
   }
 }
 
 /** Wraps an adapter: parses each line, numbers its events, keeps text if asked. */
 export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolean } = {}): Reader & { text?: SessionText } {
-  const text: SessionText = new Map()
+  const text: SessionText = {}
   const number = sequence()
   let first = true
   const reader = withSession<string>(agent, {
@@ -205,9 +222,11 @@ export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolea
 /** Each call's final status: its result's, or unknown without one. */
 export function outcomes(events: SessionEvent[]): Record<string, Status> {
   const calls: Record<string, Status> = Object.create(null)
-  for (const e of events) {
-    if (e.k === 'call') calls[e.call] ??= 'unknown'
-    else if (e.k === 'result' && e.call in calls) calls[e.call] = e.status
-  }
+  for (const e of events) settle(calls, e)
   return calls
+}
+
+function settle(calls: Record<string, Status>, e: SessionEvent) {
+  if (e.k === 'call') calls[e.call] ??= 'unknown'
+  else if (e.k === 'result' && e.call in calls) calls[e.call] = e.status
 }

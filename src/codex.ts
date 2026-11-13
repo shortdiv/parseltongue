@@ -38,6 +38,7 @@ export interface Line {
       kind?: string
       status?: string
       tool?: string
+      server?: string
       command?: string[] | string
       changes?: Changes
     }
@@ -55,6 +56,7 @@ export interface Line {
     changes?: Changes
     command?: string[] | string
     result?: { Ok?: { isError?: boolean }; Err?: unknown }
+    invocation?: { server?: string; tool?: string }
   }
 }
 
@@ -84,6 +86,9 @@ const isWebItem = (it: { type?: string; kind?: string } | undefined) =>
   it?.type === 'WebSearch' || (it?.type === 'Extension' && it.kind?.startsWith('web.') === true)
 
 type Outcome = 'ok' | 'failed' | 'declined'
+
+/** An MCP call's name in Claude's form, mcp__server__tool, unless Codex already gave it as server.tool. */
+const mcpName = (server?: string, tool?: string) => (tool?.includes('.') ? tool : ['mcp', server, tool].filter(Boolean).join('__'))
 
 /** Tags Codex wraps the context it injects in. Newer ones are snake_case, like most of these. */
 const INJECTED_TAGS = new Set(['environment_context', 'user_instructions', 'skill', 'recommended_plugins', 'turn_aborted', 'system_instruction', 'codex_internal_context', 'user_action'])
@@ -326,11 +331,11 @@ export function codex(): Adapter {
             p.type === 'mcp_tool_call_end'
               ? p.result?.Err !== undefined || p.result?.Ok?.isError ? 'failed' : p.result?.Ok ? 'ok' : undefined
               : statusOutcome(p)
-          const tool = p.type === 'exec_command_end' ? 'exec_command' : p.type === 'patch_apply_end' ? 'apply_patch' : 'mcp'
+          const tool = p.type === 'exec_command_end' ? 'exec_command' : p.type === 'patch_apply_end' ? 'apply_patch' : mcpName(p.invocation?.server, p.invocation?.tool)
           item = { id, tool, outcome, command: argv(p.command), changes: p.changes }
         } else if (p.type === 'item_completed' && p.item?.type && ACTION_ITEMS.has(p.item.type)) {
           const it = p.item
-          item = { id: it.id, tool: it.tool ?? it.type!, outcome: statusOutcome(it), command: argv(it.command), changes: it.changes }
+          item = { id: it.id, tool: it.type === 'McpToolCall' ? mcpName(it.server, it.tool) : it.tool ?? it.type!, outcome: statusOutcome(it), command: argv(it.command), changes: it.changes }
         } else if (p.type === 'item_completed' && p.item?.type === 'ImageView') {
           // The agent looked at an image; a completed item has no status of its own.
           item = { id: p.item.id ?? `image:${calls.size}`, tool: 'ImageView', outcome: 'ok', path: p.item.path }

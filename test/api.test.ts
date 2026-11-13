@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detect, parseSession, reader, type SessionEvent } from '../src/index.js'
+import { detect, FormatError, parseSession, reader, type SessionEvent } from '../src/index.js'
 
 /**
  * The public API: one parse gives a text-free event list (always), and the text
@@ -57,25 +57,32 @@ describe('parseSession', () => {
 
   it('includes the text behind events and agent replies if text option is passed in and true', () => {
     const s = parseSession(RAW, { text: true })
-    const textOf = (k: SessionEvent['k']) => s.events.filter((e) => e.k === k).map((e) => s.text.get(e.id))
+    const textOf = (k: SessionEvent['k']) => s.events.filter((e) => e.k === k).map((e) => s.text[e.id])
     expect(textOf('prompt')).toEqual(['fix the flaky billing test', 'also run lint', 'thanks, ship it'])
     expect(textOf('answer')).toEqual(['Keep the retry'])
     expect(textOf('reply')).toEqual(['Looking at the test first.'])
   })
 
-  it('calls a log it can\'t place unknown, never Claude', () => {
+  it('keeps the text through JSON, so a server can return the session whole', () => {
+    const s = parseSession(RAW, { text: true })
+    expect(JSON.parse(JSON.stringify(s))).toEqual(s)
+  })
+
+  it('throws on a log it can\'t place, never calling it Claude', () => {
     const pi = '{"type":"session","id":"p1","version":3}'
     // Gemini CLI and Qwen Code logs look a little like Claude's: they're named, but not read yet.
     const gemini = '{"sessionId":"g1","projectHash":"h","messages":[]}'
     const qwen = '{"type":"user","uuid":"u1","sessionId":"q1","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","parts":[{"text":"hi"}]}}'
-    for (const [raw, warning] of [
-      ['{"hello":"world"}', 'Unrecognised format'],
-      [gemini, 'Gemini CLI logs aren\'t supported yet'],
-      [qwen, 'Qwen Code logs aren\'t supported yet'],
-      [`${pi}\n${RAW.split('\n')[0]}`, 'Ambiguous format: looks like pi and Claude Code'],
-    ]) {
-      expect(detect(raw!)).toEqual({ agent: 'unknown', warning })
-      expect(parseSession(raw!)).toEqual({ agent: 'unknown', events: [], calls: {}, warnings: [warning] })
+    for (const [raw, code, formats, message] of [
+      ['{"hello":"world"}', 'unrecognised_format', [], 'Unrecognised format'],
+      [gemini, 'unsupported_format', ['gemini'], 'Gemini CLI logs aren\'t supported yet'],
+      [qwen, 'unsupported_format', ['qwen'], 'Qwen Code logs aren\'t supported yet'],
+      [`${pi}\n${RAW.split('\n')[0]}`, 'ambiguous_format', ['pi', 'claude'], 'Ambiguous format: looks like pi and Claude Code'],
+    ] as const) {
+      expect(detect(raw)).toEqual({ agent: 'unknown', code, formats, message })
+      const error = (() => { try { parseSession(raw) } catch (e) { return e } })()
+      expect(error).toBeInstanceOf(FormatError)
+      expect(error).toMatchObject({ name: 'FormatError', code, formats, message })
     }
   })
 
@@ -97,8 +104,11 @@ describe('parseSession', () => {
     const part = { type: 'tool', callId: 'c', tool: 'bash', start: 2 }
     const call = r.read({ part })
     const before = r.session()
+    const untouched = r.session()
     expect(before.calls).toEqual({ c: 'unknown' })
     const result = r.read({ part: { ...part, status: 'completed', end: 3 } })
+    // A snapshot first looked at after more rows still shows the session as it was.
+    expect(JSON.parse(JSON.stringify(untouched))).toMatchObject({ events: [...prompt, ...call], calls: { c: 'unknown' } })
     expect(r.session()).toEqual({
       id: 'saved-id', agent: 'opencode', cwd: '/work',
       events: [...prompt, ...call, ...result], calls: { c: 'ok' }, warnings: [],

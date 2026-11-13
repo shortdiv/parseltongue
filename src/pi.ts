@@ -146,7 +146,9 @@ export function piReader(opts: { text?: boolean } = {}): PiReader & { text?: Ses
     warnings: () => [
       ...(diagnostics.malformedLines ? [`${diagnostics.malformedLines} malformed JSONL lines skipped`] : []),
       ...(diagnostics.ignoredLines ? [`${diagnostics.ignoredLines} invalid entries skipped`] : []),
-      ...(getPath().complete ? [] : ['Incomplete or cyclic ancestry; every branch retained']),
+      ...(diagnostics.duplicateEntries ? [`${diagnostics.duplicateEntries} duplicate entries skipped`] : []),
+      ...(diagnostics.orphanResults ? [`${diagnostics.orphanResults} tool results without a matching call skipped`] : []),
+      ...(leafComplete() ? [] : ['Incomplete or cyclic ancestry; every branch retained']),
     ],
   }
 
@@ -182,6 +184,13 @@ export function piReader(opts: { text?: boolean } = {}): PiReader & { text?: Ses
     const status: Status = cancelled ? 'interrupted' : typeof msg.isError !== 'boolean' ? 'unknown' : msg.isError ? 'failed' : 'ok'
     // Only successful edits establish authorship: a failed write mustn't make a later edit look like rework.
     return [{ at, by: 'agent', k: 'result', call: id, status, rework: status === 'ok' ? reworks(tracker, edits) : undefined }]
+  }
+
+  // Entries are only ever added, and each one becomes the leaf, so a leaf's ancestry never changes.
+  let checked: { leaf: typeof leaf; complete: boolean } | undefined
+  function leafComplete() {
+    if (!checked || checked.leaf !== leaf) checked = { leaf, complete: getPath().complete }
+    return checked.complete
   }
 
   function getPath(leafId = leaf?.id): { entries: PiEntry[]; complete: boolean } {

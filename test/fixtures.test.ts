@@ -27,10 +27,10 @@ describe('fixtures', () => {
         expect(detect(raw)).toEqual({ agent })
         expect(session.agent).toBe(agent)
         expect(session.warnings).toEqual([])
-        expect(session.events.some(e => e.k === 'prompt' && text.has(e.id))).toBe(true)
+        expect(session.events.some(e => e.k === 'prompt' && e.id in text)).toBe(true)
         expect(parseSession(raw)).toEqual(session)
         const events = JSON.stringify(session.events)
-        for (const words of text.values()) if (words.length >= 12) expect(events).not.toContain(words)
+        for (const words of Object.values(text)) if (words.length >= 12) expect(events).not.toContain(words)
 
         const live = reader(agent, { text: true })
         expect(live.session()).toEqual({ agent, events: [], calls: {}, warnings: [] })

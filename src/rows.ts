@@ -170,7 +170,7 @@ export function zedReader(opts: { id?: string } = {}): Reader<ZedThread> {
       if (at === undefined || t.updatedAt === last) return []
       last = t.updatedAt
       if (info.cwd === undefined && t.folders) info.cwd = firstFolder(t.folders)
-      return [number({ at, by: 'agent', k: 'system', what: 'thread_updated' })]
+      return [number({ at, by: 'system', k: 'system', what: 'thread_updated' })]
     },
   })
 }
@@ -179,7 +179,7 @@ function firstFolder(raw: string): string | undefined {
   if (raw.startsWith('[')) {
     try {
       const list = JSON.parse(raw) as unknown
-      if (Array.isArray(list) && typeof list[0] === 'string') return list[0]
+      if (Array.isArray(list)) return typeof list[0] === 'string' && list[0] ? list[0] : undefined
     } catch {
       // Fall through to newline-separated.
     }
