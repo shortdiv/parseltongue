@@ -1,5 +1,5 @@
 import { callDraft, isAskTool } from './commands.js'
-import { blockText, type Adapter, type Draft, type Status } from './events.js'
+import { blockText, jsonlReader, type Adapter, type Draft, type Reader, type SessionText, type Status } from './events.js'
 import { reworks, ReworkTracker, type Edit } from './rework.js'
 import type { TokenCounts } from './types.js'
 import { parseISO } from './util.js'
@@ -115,7 +115,7 @@ const LOGS = new Set([
 ])
 const SYSTEM_LOGS = new Set(['informational', 'local_command', 'stop_hook_summary'])
 
-export function claude(): Adapter {
+function claudeAdapter(): Adapter {
   const info: Adapter['info'] = {}
   /** Usage already counted for each message id. */
   const counted = new Map<string, TokenCounts>()
@@ -225,6 +225,10 @@ export function claude(): Adapter {
       by: !mine(l) ? 'agent' : 'system',
     }),
   }
+}
+
+export function claudeReader(opts: { text?: boolean } = {}): Reader & { text?: SessionText } {
+  return jsonlReader('claude', claudeAdapter(), opts)
 }
 
 const max = (a: TokenCounts, b: TokenCounts): TokenCounts =>

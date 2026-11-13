@@ -177,8 +177,8 @@ export function withSession<In>(agent: Harness, source: Source<In>): Reader<In> 
   }
 }
 
-/** Wraps an adapter: parses each line, numbers its events, keeps text if asked. */
-export function readWith(agent: Harness, adapter: Adapter, opts: { text?: boolean } = {}): Reader & { text?: SessionText } {
+/** Makes a JSONL reader from an adapter: parses each line, numbers its events, keeps text if asked. */
+export function jsonlReader(agent: LogHarness, adapter: Adapter, opts: { text?: boolean } = {}): Reader & { text?: SessionText } {
   const text: SessionText = {}
   const number = sequence()
   let first = true

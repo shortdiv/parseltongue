@@ -1,5 +1,5 @@
 import { callDraft, isAskTool } from './commands.js'
-import { blockText, type Adapter, type Draft, type Status } from './events.js'
+import { blockText, jsonlReader, type Adapter, type Draft, type Reader, type SessionText, type Status } from './events.js'
 import { reworks, ReworkTracker, type Edit } from './rework.js'
 import type { TokenCounts } from './types.js'
 import { emptyTokens, parseISO } from './util.js'
@@ -216,7 +216,7 @@ const EVENT_LOGS = new Set(['thread_settings_applied', 'token_count'])
 const statusOf = (o: Outcome | undefined): Status => o ?? 'unknown'
 
 /** Codex doesn't log the branch; the caller resolves it from the project folder. */
-export function codex(): Adapter {
+function codexAdapter(): Adapter {
   const info: Adapter['info'] = {}
   const calls = new Set<string>()
   /** Calls waiting for how they went, with the edits they'd make. */
@@ -385,4 +385,8 @@ export function codex(): Adapter {
       }
     },
   }
+}
+
+export function codexReader(opts: { text?: boolean } = {}): Reader & { text?: SessionText } {
+  return jsonlReader('codex', codexAdapter(), opts)
 }

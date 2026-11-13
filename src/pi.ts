@@ -1,5 +1,5 @@
 import { callDraft } from './commands.js'
-import { blockText, readWith, type Adapter, type Draft, type Reader, type SessionEvent, type SessionText, type Status } from './events.js'
+import { blockText, jsonlReader, type Adapter, type Draft, type Reader, type SessionEvent, type SessionText, type Status } from './events.js'
 import { reworks, ReworkTracker, type Edit } from './rework.js'
 import { parseISO } from './util.js'
 
@@ -207,7 +207,7 @@ export function piReader(opts: { text?: boolean } = {}): PiReader & { text?: Ses
     return { entries: path.reverse(), complete: true }
   }
 
-  const reader = readWith('pi', adapter, opts)
+  const reader = jsonlReader('pi', adapter, opts)
   return {
     ...reader,
     metadata,

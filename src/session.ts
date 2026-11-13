@@ -1,7 +1,7 @@
-import { claude } from './claude.js'
-import { codex } from './codex.js'
+import { claudeReader } from './claude.js'
+import { codexReader } from './codex.js'
 import { detect, FormatError } from './detect.js'
-import { readWith, type Harness, type LogHarness, type Reader, type Session, type SessionText } from './events.js'
+import { type Harness, type LogHarness, type Reader, type Session, type SessionText } from './events.js'
 import { opencodeReader, cursorReader, zedReader, type OpencodeRow, type CursorBubble, type ZedThread } from './rows.js'
 import { piReader, type PiReader } from './pi.js'
 
@@ -11,21 +11,23 @@ type Options<H extends Harness> = H extends LogHarness ? { text?: boolean } : { 
 type WithText<O> = O extends { text: true } ? { text: SessionText } : 'text' extends keyof O ? { text?: SessionText } : {}
 type ReaderFor<H extends Harness, O> = (H extends 'pi' ? PiReader : Reader<Inputs[H]>) & WithText<O>
 
+const readers = {
+  claude: claudeReader,
+  codex: codexReader,
+  pi: piReader,
+  opencode: opencodeReader,
+  cursor: cursorReader,
+  zed: zedReader,
+} satisfies Record<Harness, unknown>
+
 /**
  * Reads one harness's log lines or database rows as the session is written.
  * Each event comes out once, finished: a call's outcome arrives later as its result.
  */
 export function reader<H extends Harness, O extends Options<H> = {}>(agent: H, opts?: O): ReaderFor<H, O>
 export function reader(agent: Harness, opts: { text?: boolean; id?: string } = {}): Reader<any> {
-  switch (agent) {
-    case 'claude': return readWith(agent, claude(), opts)
-    case 'codex': return readWith(agent, codex(), opts)
-    case 'pi': return piReader(opts)
-    case 'opencode': return opencodeReader(opts)
-    case 'cursor': return cursorReader(opts)
-    case 'zed': return zedReader(opts)
-    default: throw new TypeError(`Unsupported agent: ${String(agent)}`)
-  }
+  if (!Object.hasOwn(readers, agent)) throw new TypeError(`Unsupported agent: ${String(agent)}`)
+  return readers[agent](opts)
 }
 
 /**
