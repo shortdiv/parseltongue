@@ -4,7 +4,22 @@
 
 Zero-runtime-dependency, browser-safe TypeScript parsers for coding-agent sessions. It **reads Claude Code, Codex and pi logs, and opencode, Cursor and Zed database rows** into one text-free list of events. Viewers and analytics tools can share its format knowledge instead of each writing their own.
 
-**Status:** unreleased. It is tested on synthetic records and on privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions; Zed is tested on synthetic rows only. Upstream formats change between versions.
+**Status:** early (0.x). None of these formats is documented by its vendor, and they change between versions; expect breaking changes while the API settles.
+
+## Supported agents
+
+| Agent | You pass | Detected | Tested on real data | What you get, and the caveats |
+|---|---|---|---|---|
+| Claude Code | JSONL log | yes | yes | Full events. A subagent's work is read from its own file; inline in a parent's file, it isn't counted as the parent's. |
+| Codex | JSONL log | yes | yes | Full events. Reasoning has only its summary as text; encrypted reasoning isn't decrypted. |
+| pi | JSONL log (versions 1–3) | yes | yes | Full events from every branch, in append order; `getPath()` picks one branch. |
+| opencode | rows from its SQLite database | no | yes | Prompts, replies, usage, and tool calls with results. You map opencode's fields to `OpencodeRow` yourself. No text and no cost. |
+| Cursor | bubble rows from its SQLite database | no | yes | Prompts, replies, and usage when Cursor stored token counts (often zero locally). No tool calls, no working directory, no text. Bubbles from older versions have no time and are skipped. |
+| Zed | thread rows from its SQLite database | no | no, synthetic only | Only when a thread changed: Zed doesn't timestamp messages, so no prompts, replies or calls. Good for activity times, not for what happened. |
+| Gemini CLI, Qwen Code | — | recognised, not read | — | `parseSession` throws a `FormatError` with `unsupported_format`. |
+| Anything else | — | no | — | `parseSession` throws a `FormatError` with `unrecognised_format`. |
+
+"Detected" means `detect` and `parseSession` recognise it from a log's content. Database rows aren't detected: you already know which database you read them from, so name the agent with `reader(agent)`. "Tested on real data" means a privacy-reviewed excerpt of a real session, from the versions in use in November 2026; everything is also tested on synthetic records.
 
 ## Scope
 
@@ -119,16 +134,6 @@ pnpm check:package
 `check:package` builds and packs the library, installs that tarball into an isolated temporary consumer, checks its public ESM API and TypeScript declarations without Node types, and checks the publication allowlist. Runtime compilation also excludes all Node types.
 
 Fixtures are tiny, privacy-reviewed excerpts of real Claude Code, Codex, pi, opencode and Cursor sessions, with every prompt, path, id and output replaced. Original sessions and private corpora remain outside the repository. Tests and fixtures are not shipped in the npm tarball. Compiled source maps contain parser source, not transcripts.
-
-## Release
-
-1. Confirm the package name/scope, MIT license, and ownership of all extracted contributions before making the repository public.
-2. Set the final name, repository metadata, and release version.
-3. Run `pnpm typecheck`, `pnpm test`, and `pnpm check:package`.
-4. Inspect `npm pack --dry-run` and the public repository for private session data.
-5. Publish deliberately with `npm publish --access public` when ready.
-
-Nothing in this extraction publishes a package or creates a public repository.
 
 ## Contribute
 

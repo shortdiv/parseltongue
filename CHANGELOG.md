@@ -9,6 +9,6 @@
 - Codex: only its own injected tags count as context, so a prompt that starts with `<` stays a prompt; `!` commands are `shell` events.
 - System events are tagged `context` or `log` so consumers can drop them.
 - Only labels, no accounting: time, tone and day buckets are left to the consumer.
-- Readers for opencode, Cursor and Zed database rows.
+- Readers for opencode, Cursor and Zed database rows. They read less than the log readers: no text from any of them, no tool calls from Cursor, and only thread updates from Zed. The README's supported-agents table has the details.
 - `detect(raw)` names the harness that wrote a log from its content, never its filename. A log that matches none, several, or a harness not read yet (Gemini CLI, Qwen Code) is `unknown` with a code (`unrecognised_format`, `ambiguous_format`, `unsupported_format`) instead of defaulting to Claude; `parseSession` throws a `FormatError` with the same code.
 - A small public API: `parseSession`, `reader`, `detect`, `isInjectedCodexText` and `FormatError`, with every public type in `types.ts`. One `reader(agent)` for all six harnesses reads log lines or database rows; `session()` returns the events, call statuses, info and warnings read so far. A reader has `text` only when made with `{ text: true }`, and an id the log doesn't give is left out, not empty.
